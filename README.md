@@ -2,7 +2,7 @@
 
 NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2) 定制版）发行仓库。
 
-> 整合包与服务器存档在 [PCL-NJITMCL-Modpacks](https://github.com/xwan5840/PCL-NJITMCL-Modpacks)。
+> 整合包与服务器存档在 [PCL-NJITMCL-Modpacks](https://github.com/njit-fkcy/PCL-NJITMCL-Modpacks)。
 
 ## 一眼看懂
 
@@ -24,7 +24,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 下载源优先级（客户端 `njitmcl.json` 内置，自动回退）：
 
-1. GitHub 直链 `https://github.com/xwan5840/PCL-NJITMCL/releases/download/v<版本>/`
+1. GitHub 直链 `https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v<版本>/`
 2. `https://gh-proxy.com/` + 直链
 3. 校园内网 `https://wg.njit-fkcy.top/modpacks/_launcher/v<版本>/`
 4. `https://ghfast.top/` + 直链（后备）
