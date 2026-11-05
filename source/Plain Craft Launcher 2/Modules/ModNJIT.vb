@@ -433,6 +433,25 @@ Public Module ModNJIT
     End Sub
 
     ''' <summary>
+    ''' 统一便携 WireGuard 组件布局：子目录存在时删掉根目录平铺的副本。
+    ''' </summary>
+    Public Sub NormalizeWgLayout()
+        Try
+            Dim Base As String = Path.GetDirectoryName(PathExe) & "\"
+            If Not FileUtils.Exists(Base & "WireGuard\wireguard.exe") Then Return
+            For Each FileName As String In New String() {"wg.exe", "wireguard.exe"}
+                Dim FlatPath As String = Base & FileName
+                If FileUtils.Exists(FlatPath) Then
+                    FileUtils.Delete(FlatPath)
+                    Logger.Info($"已清理根目录平铺的 WireGuard 组件：{FileName}")
+                End If
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "统一 WireGuard 组件布局失败")
+        End Try
+    End Sub
+
+    ''' <summary>
     ''' 以管理员权限调用便携 WireGuard。
     ''' </summary>
     Private Sub RunWgExeAdmin(Argument As String, Value As String)
