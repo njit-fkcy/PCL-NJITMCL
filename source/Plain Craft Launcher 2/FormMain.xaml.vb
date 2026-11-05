@@ -580,6 +580,8 @@ Public Class FormMain
         End If
         '关闭联机？
         If FrmLinkMain?.TryExit(Not SendWarning, True) Then Return
+        '断开校内组网（同步执行，确保隧道在进程退出前卸载）
+        WgDisconnectOnExit()
         '关闭
         RunInUiWait(
         Sub()
@@ -618,6 +620,8 @@ Public Class FormMain
         IsProgramEnding = True
         AniControlEnabled += 1
         If IsUpdateWaitingRestart Then UpdateRestart(False)
+        '兜底：异常退出、更新重启等绕过 EndProgram 的路径也先断开校内组网（已断开时立即返回）
+        WgDisconnectOnExit()
         If ReturnCode = ProcessReturnValues.Exception Then
             If Not IsLogShown Then
                 FeedbackInfo()

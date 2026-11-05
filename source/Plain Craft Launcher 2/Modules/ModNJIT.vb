@@ -415,6 +415,24 @@ Public Module ModNJIT
     End Sub
 
     ''' <summary>
+    ''' 程序退出时断开校内组网。失败只记录日志，不阻塞退出流程。
+    ''' </summary>
+    Public Sub WgDisconnectOnExit()
+        Try
+            If Not IsWgInstalled() Then Return
+            Logger.Info("程序退出，正在断开校内组网")
+            WgDisconnect()
+            If IsWgInstalled() Then
+                Logger.Warn("已尝试断开校内组网，但隧道服务仍然存在")
+            Else
+                Logger.Info("已断开校内组网，隧道服务已移除")
+            End If
+        Catch ex As Exception
+            Logger.Warn(ex, "退出时断开校内组网失败")
+        End Try
+    End Sub
+
+    ''' <summary>
     ''' 以管理员权限调用便携 WireGuard。
     ''' </summary>
     Private Sub RunWgExeAdmin(Argument As String, Value As String)
