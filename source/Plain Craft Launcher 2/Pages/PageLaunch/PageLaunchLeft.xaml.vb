@@ -134,7 +134,7 @@ Public Class PageLaunchLeft
             Case McLoginType.Nide
                 LabLaunchingMethod.Text = "统一通行证"
             Case McLoginType.Auth
-                LabLaunchingMethod.Text = If(Settings.Get(Of String)("CacheAuthServerServer") = MuaAuthServer, "MUA 登录", "Authlib-Injector")
+                LabLaunchingMethod.Text = If(GetAuthServer() = MuaAuthServer, "MUA 登录", "Authlib-Injector")
         End Select
         '初始化页面
         LabLaunchingName.Text = McInstanceSelected.Name
@@ -306,6 +306,8 @@ Public Class PageLaunchLeft
         Select Case LoginPageType
             Case 0 '正版、MUA 或离线
 UnknownType:
+                '第三方登录时不要让按钮显示成「MUA」
+                RadioLoginTypeMua.Text = If(GetAuthServer() = MuaAuthServer, "MUA", "第三方")
                 If RadioLoginTypeMua.Checked Then
                     'MUA 第三方登录：自动写入认证服务器配置
                     ApplyMuaAuthSettings()
@@ -372,7 +374,7 @@ UnknownType:
                 PanType.Visibility = Visibility.Collapsed
                 PanTypeOne.Visibility = Visibility.Visible
                 PathTypeOne.Data = (New GeometryConverter).ConvertFromString(Logo.IconButtonCard)
-                LabTypeOne.Text = If(McInstanceSelected Is Nothing, Settings.Get(Of String)("CacheAuthServerName"), Settings.Get(Of String)("VersionServerAuthName", Instance:=McInstanceSelected))
+                LabTypeOne.Text = GetAuthName()
                 If LabTypeOne.Text = "" Then LabTypeOne.Text = "第三方登录"
             Case Else
                 Logger.Error($"未知的登录页面：{LoginPageType}", LogBehavior.Toast)

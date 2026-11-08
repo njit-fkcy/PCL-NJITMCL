@@ -200,17 +200,17 @@ Public Module ModMinecraft
             If Settings.Get(Of Integer)("VersionServerLogin", Instance:=value) = 3 Then
                 Settings.Set("CacheNideServer", Settings.Get(Of String)("VersionServerNide", Instance:=value))
             End If
-            'Authlib-Injector 重判
+            'Authlib-Injector：第三方登录读版本配置，MUA 走固定值
             If AniControlEnabled = 0 AndAlso
-               Settings.Get(Of String)("VersionServerAuthServer", Instance:=value) <> Settings.Get(Of String)("CacheAuthServerServer") AndAlso
-               Settings.Get(Of Integer)("VersionServerLogin", Instance:=value) = 4 Then
+               Settings.Get(Of Integer)("VersionServerLogin", Instance:=value) = 4 AndAlso
+               GetAuthServer(value) <> Settings.Get(Of String)("CacheAuthServerServer") Then
                 Settings.Set("CacheAuthAccess", "")
                 Logger.Info("服务器改变，要求重新登录 Authlib-Injector")
             End If
             If Settings.Get(Of Integer)("VersionServerLogin", Instance:=value) = 4 Then
-                Settings.Set("CacheAuthServerServer", Settings.Get(Of String)("VersionServerAuthServer", Instance:=value))
-                Settings.Set("CacheAuthServerName", Settings.Get(Of String)("VersionServerAuthName", Instance:=value))
-                Settings.Set("CacheAuthServerRegister", Settings.Get(Of String)("VersionServerAuthRegister", Instance:=value))
+                Settings.Set("CacheAuthServerServer", GetAuthServer(value))
+                Settings.Set("CacheAuthServerName", GetAuthName(value))
+                Settings.Set("CacheAuthServerRegister", GetAuthRegister(value))
             End If
         End Set
     End Property
@@ -1416,7 +1416,7 @@ OnLoaded:
             Case "Nide"
                 Url = "https://auth.mc-user.com:233/" & If(McInstanceSelected Is Nothing, Settings.Get(Of String)("CacheNideServer"), Settings.Get(Of String)("VersionServerNide", Instance:=McInstanceSelected)) & "/sessionserver/session/minecraft/profile/"
             Case "Auth"
-                Url = If(McInstanceSelected Is Nothing, Settings.Get(Of String)("CacheAuthServerServer"), Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected)) & "/sessionserver/session/minecraft/profile/"
+                Url = GetAuthServer() & "/sessionserver/session/minecraft/profile/"
             Case Else
                 Throw New ArgumentException("皮肤地址种类无效：" & If(Type, "null"))
         End Select
@@ -1800,10 +1800,9 @@ OnLoaded:
             End Try
         End If
 
-        'Authlib-Injector 文件（选了第三方登录，或认证服务器指向 MUA 时都需要）
-        Dim AuthServerInstance As String = Settings.Get(Of String)("VersionServerAuthServer", Instance:=Instance)
+        'Authlib-Injector 文件（第三方登录，或认证服务器指向 MUA 时都需要）
         If Settings.Get(Of Integer)("VersionServerLogin", Instance:=Instance) = 4 OrElse
-           AuthServerInstance.StartsWithF("https://skin.mualliance.ltd") Then
+           GetAuthServer(Instance).StartsWithF("https://skin.mualliance.ltd") Then
             Dim TargetFile = PathPure.Value & "authlib-injector.jar"
             Try
                 Logger.Info("开始获取 Authlib-Injector 下载信息")

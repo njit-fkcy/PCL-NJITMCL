@@ -120,6 +120,12 @@ Public Module ModNJIT
     ''' 注意：不改写「登录方式」字段，让它保持用户选择的「正版登录或离线登录」。
     ''' </summary>
     Public Sub ApplyMuaAuthSettings()
+        '版本已明确选择第三方登录（LittleSkin 等）时，不覆盖其认证服务器配置
+        If McInstanceSelected IsNot Nothing AndAlso
+           Settings.Get(Of Integer)("VersionServerLogin", Instance:=McInstanceSelected) = 4 Then
+            Dim Custom As String = Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected)
+            If Not String.IsNullOrWhiteSpace(Custom) AndAlso Custom <> MuaAuthServer Then Return
+        End If
         Settings.Set("CacheAuthServerServer", MuaAuthServer)
         Settings.Set("CacheAuthServerName", MuaServerName)
         Settings.Set("CacheAuthServerRegister", MuaRegisterUrl)
@@ -131,11 +137,51 @@ Public Module ModNJIT
     End Sub
 
     ''' <summary>
+    ''' 当前生效的认证服务器地址。
+    ''' 版本明确启用第三方登录（VersionServerLogin = 4）时读取该版本的配置；
+    ''' 其余情况（含 MUA 登录）固定为 MUA，避免配置为空拼出相对 URI。
+    ''' </summary>
+    Public Function GetAuthServer(Optional Target As McInstance = Nothing) As String
+        Dim Instance As McInstance = If(Target, McInstanceSelected)
+        If Instance IsNot Nothing AndAlso Settings.Get(Of Integer)("VersionServerLogin", Instance:=Instance) = 4 Then
+            Dim Custom As String = Settings.Get(Of String)("VersionServerAuthServer", Instance:=Instance)
+            If Not String.IsNullOrWhiteSpace(Custom) Then Return Custom
+        End If
+        Return MuaAuthServer
+    End Function
+
+    ''' <summary>
+    ''' 当前生效的认证服务器显示名：第三方登录读版本配置，其余固定为 MUA。
+    ''' </summary>
+    Public Function GetAuthName(Optional Target As McInstance = Nothing) As String
+        Dim Instance As McInstance = If(Target, McInstanceSelected)
+        If Instance IsNot Nothing AndAlso Settings.Get(Of Integer)("VersionServerLogin", Instance:=Instance) = 4 Then
+            Dim Custom As String = Settings.Get(Of String)("VersionServerAuthName", Instance:=Instance)
+            If Not String.IsNullOrWhiteSpace(Custom) Then Return Custom
+        End If
+        Return MuaServerName
+    End Function
+
+    ''' <summary>
+    ''' 当前生效的注册链接：第三方登录读版本配置，其余固定为 MUA。
+    ''' </summary>
+    Public Function GetAuthRegister(Optional Target As McInstance = Nothing) As String
+        Dim Instance As McInstance = If(Target, McInstanceSelected)
+        If Instance IsNot Nothing AndAlso Settings.Get(Of Integer)("VersionServerLogin", Instance:=Instance) = 4 Then
+            Dim Custom As String = Settings.Get(Of String)("VersionServerAuthRegister", Instance:=Instance)
+            If Not String.IsNullOrWhiteSpace(Custom) Then Return Custom
+        End If
+        Return MuaRegisterUrl
+    End Function
+
+    ''' <summary>
     ''' 在 MUA 登录成功后记录状态，并触发一次校内组网自动连接。
     ''' </summary>
-    Public Sub OnMuaLoginSuccess(UserName As String)
+    Public Sub OnMuaLoginSuccess(UserName As String, Optional Password As String = "")
         Settings.Set("MuaLoggedIn", True)
         Settings.Set("MuaEmail", UserName)
+        'MUA 账密单独保存，避免被 LittleSkin 等第三方登录覆盖后影响组网
+        If Password <> "" Then Settings.Set("MuaPass", Password)
         ApplyMuaAuthSettings()
         Logger.Info("MUA 登录成功，准备自动连接校内组网")
         RunInThread(AddressOf WgAutoConnectSafe)
@@ -190,18 +236,28 @@ Public Module ModNJIT
     ''' 认证服务器是 MUA 时还会触发组网自动连接。
     ''' </summary>
     Public Sub ApplyAuthLogin(Json As JObject, BaseUrl As String, UserName As String, Password As String)
+        If Json Is Nothing Then Throw New Exception("认证服务器没有返回数据")
+        Dim AccessToken As String = Json("accessToken")?.ToString()
+        Dim ClientToken As String = Json("clientToken")?.ToString()
+        If String.IsNullOrWhiteSpace(AccessToken) Then Throw New Exception("认证服务器未返回登录凭证，请稍后再试")
         Dim Profiles = Json("availableProfiles")
+        If Profiles Is Nothing OrElse Profiles.Count = 0 Then Throw New Exception("该账号还没有创建角色，请先在用户中心创建角色")
         Dim Profile = If(Json("selectedProfile"), Profiles(0))
-        Settings.Set("CacheAuthAccess", Json("accessToken").ToString)
-        Settings.Set("CacheAuthClient", Json("clientToken").ToString)
-        Settings.Set("CacheAuthUuid", Profile("id").ToString)
-        Settings.Set("CacheAuthName", Profile("name").ToString)
+        Dim ProfileId As String = Profile?("id")?.ToString()
+        Dim ProfileName As String = Profile?("name")?.ToString()
+        If String.IsNullOrWhiteSpace(ProfileId) OrElse String.IsNullOrWhiteSpace(ProfileName) Then
+            Throw New Exception("认证服务器返回的角色信息不完整，请稍后再试")
+        End If
+        Settings.Set("CacheAuthAccess", AccessToken)
+        If Not String.IsNullOrWhiteSpace(ClientToken) Then Settings.Set("CacheAuthClient", ClientToken)
+        Settings.Set("CacheAuthUuid", ProfileId)
+        Settings.Set("CacheAuthName", ProfileName)
         Settings.Set("CacheAuthUsername", UserName.Trim)
         Settings.Set("CacheAuthPass", Password)
         '记住账号，下次打开登录页可以直接带出
         Settings.Set("LoginAuthEmail", UserName.Trim)
         If Settings.Get(Of Boolean)("LoginRemember") Then Settings.Set("LoginAuthPass", Password)
-        If BaseUrl.StartsWithF(MuaAuthServer) Then OnMuaLoginSuccess(UserName.Trim)
+        If BaseUrl.StartsWithF(MuaAuthServer) Then OnMuaLoginSuccess(UserName.Trim, Password)
     End Sub
 
 #End Region
@@ -479,8 +535,15 @@ Public Module ModNJIT
     Public Function WgAutoConnect() As String
         If IsWgConnected() Then Return WgStatusText()
         If IsMuaLoggedIn() Then
-            Dim Email As String = Settings.Get(Of String)("CacheAuthUsername")
-            Dim Password As String = Settings.Get(Of String)("CacheAuthPass")
+            Dim Email As String = Settings.Get(Of String)("MuaEmail")
+            Dim Password As String = Settings.Get(Of String)("MuaPass")
+            '兼容旧版本：未单独保存时回落到当时的 MUA 登录缓存
+            If String.IsNullOrWhiteSpace(Email) AndAlso Settings.Get(Of String)("CacheAuthServerServer") = MuaAuthServer Then
+                Email = Settings.Get(Of String)("CacheAuthUsername")
+            End If
+            If String.IsNullOrWhiteSpace(Password) AndAlso Settings.Get(Of String)("CacheAuthServerServer") = MuaAuthServer Then
+                Password = Settings.Get(Of String)("CacheAuthPass")
+            End If
             If String.IsNullOrWhiteSpace(Email) OrElse String.IsNullOrWhiteSpace(Password) Then
                 Return "尚未使用 MUA 登录"
             End If

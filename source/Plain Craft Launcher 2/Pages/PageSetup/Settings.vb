@@ -83,6 +83,7 @@ Public Class Settings
         New Setting("LoginAuthPass", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("MuaLoggedIn", False, Source:=Sources.Registry),
         New Setting("MuaEmail", "", Source:=Sources.Registry, Encrypted:=True),
+        New Setting("MuaPass", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("NJITWgAutoConnect", True, Source:=Sources.Registry),
         New Setting("LoginType", McLoginType.Ms, Source:=Sources.Registry),
         New Setting("LoginPageType", 0),

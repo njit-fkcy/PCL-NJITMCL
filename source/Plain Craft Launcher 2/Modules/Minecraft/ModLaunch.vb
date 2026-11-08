@@ -620,16 +620,19 @@ SkipLogin:
             Settings.Get(Of String)("Cache" & Input.Token & "Access") <> "" AndAlso
             Settings.Get(Of String)("Cache" & Input.Token & "Client") <> "" AndAlso
             Settings.Get(Of String)("Cache" & Input.Token & "Uuid") <> "" AndAlso
-            Settings.Get(Of String)("Cache" & Input.Token & "Name") <> "" Then
-            '尝试验证登录
-            Try
-                If Data.IsCanceled Then Throw New OperationCanceledException
-                McLoginRequestValidate(Data)
-                GoTo LoginFinish
-            Catch ex As Exception
-                Logger.Warn(ex, "验证登录失败")
-                If ex.IsBadNetwork Then Throw New Exception("$登录失败：你的网络环境不佳，导致难以连接到海外服务器。" & vbCrLf & "请稍后再试，或使用加速器、VPN 改善网络环境。")
-            End Try
+            Settings.Get(Of String)("Cache" & Input.Token & "Name") <> "" AndAlso
+            (Input.Type <> McLoginType.Auth OrElse Settings.Get(Of String)("CacheAuthServerServer") = GetAuthServer()) Then
+            '尝试验证登录（MUA 已关闭 Validate 接口，直接走刷新）
+            If Not Input.BaseUrl.StartsWithF(MuaAuthServer) Then
+                Try
+                    If Data.IsCanceled Then Throw New OperationCanceledException
+                    McLoginRequestValidate(Data)
+                    GoTo LoginFinish
+                Catch ex As Exception
+                    Logger.Warn(ex, "验证登录失败")
+                    If ex.IsBadNetwork Then Throw New Exception("$登录失败：网络连接异常，无法连接到认证服务器。" & vbCrLf & "请检查网络后重试，校内网络可尝试连接校内组网。")
+                End Try
+            End If
             Data.Progress = 0.25
             '尝试刷新登录
 Refresh:
@@ -827,7 +830,7 @@ LoginFinish:
             Settings.Set("Cache" & Data.Input.Token & "Pass", Data.Input.Password)
             'MUA 登录成功后记录状态，供校内组网自动连接使用
             If Data.Input.Type = McLoginType.Auth AndAlso Data.Input.BaseUrl.StartsWithF(MuaAuthServer) Then
-                OnMuaLoginSuccess(Data.Input.UserName)
+                OnMuaLoginSuccess(Data.Input.UserName, Data.Input.Password)
             End If
             McLaunchLog("登录成功（Login, " & Data.Input.Token & "）")
             Return NeedRefresh
@@ -872,6 +875,9 @@ LoginFinish:
                                             " - 只注册了账号，但没有加入对应服务器。")
                 End Select
             ElseIf ex.IsBadNetwork() Then
+                If Data.Input.Type = McLoginType.Auth Then
+                    Throw New Exception("$登录失败：网络连接异常，无法连接到认证服务器。" & vbCrLf & "请检查网络后重试，校内网络可尝试连接校内组网。")
+                End If
                 Throw New Exception("$登录失败：你的网络环境不佳，导致难以连接到海外服务器。" & vbCrLf & "请稍后再试，或使用加速器、VPN 改善网络环境。")
             ElseIf ex.Message.StartsWithF("$") Then
                 Throw
@@ -1279,7 +1285,8 @@ NextInstance:
         'Authlib-Injector
         If McLoginLoader.Output.Type = "Auth" Then
             If McLaunchJavaSelected.Version.Major >= 6 Then Args.Add("-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT") '信任系统根证书（5252#）
-            Dim Server As String = Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected)
+            '认证服务器：优先版本配置，为空时回落 MUA
+            Dim Server As String = GetAuthServer()
             Try
                 McLaunchLog($"开始 Authlib Injector Prefetch")
                 Dim Response As String = NetRequestByClientRetry(Server, Encoding:=Encoding.UTF8)
