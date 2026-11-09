@@ -21,8 +21,8 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 | 项 | 值 |
 |---|---|
 | 组织 | [njit-fkcy](https://github.com/njit-fkcy) |
-| 最新版本 | **v1.5.6** |
-| Release 数量 | 24（v1.0.3 ～ v1.5.6） |
+| 最新版本 | **v1.6.1** |
+| Release 数量 | 29（v1.0.3 ～ v1.6.1） |
 | 每个 Release 资产 | 10 个（9 个运行文件 + 1 个完整 zip） |
 | 源码 | [PCL-NJITMCL-Source](https://github.com/njit-fkcy/PCL-NJITMCL-Source)（每版一个 tag；内网镜像 `_launcher/_source/v<版本>/`） |
 | 更新清单 | https://njitmc.club/update/njitmcl.json |
@@ -32,7 +32,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 ## 源码
 
 启动器源码在本仓库 [`source/`](source/) 目录，与发行版同仓，随版本打 tag `v<版本>-source`
-（当前 `v1.5.6-source`）。
+（当前 `v1.6.1-source`）。
 
 - 技术栈：VB.NET + WPF，.NET Framework 4.8.1，旧式 `.vbproj`
 - 编译：必须用 VS2022 BuildTools 的 MSBuild（先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`），详见 `source/README.md`
@@ -50,13 +50,15 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 **安装**：下载 `PCL-NJITMCL-<版本>.zip`，解压到任意目录（建议路径不含中文与空格），运行 `PCL-NJITMCL.exe`。
 **升级**：用新版本的 9 个文件覆盖旧目录即可，存档与设置不受影响（`PCL` 子目录保留）。
 
-下载源（客户端内置，按顺序自动回退，任一可用即可）：
+下载源（客户端内置，按顺序回退，任一可用即可；1.6.1 起为下列 4 个）：
 
 1. GitHub 直链 `https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v<版本>/`
-2. `https://gh-proxy.com/` + 直链
-3. 校园内网 `https://wg.njit-fkcy.top/modpacks/_launcher/v<版本>/`
-4. `https://ghfast.top/` + 直链（后备）
-5. `https://gh.llkk.cc/` + 直链（后备）
+2. 校园内网 `https://wg.njit-fkcy.top/modpacks/_launcher/v<版本>/`
+3. `https://gh-proxy.com/` + 直链
+4. `https://ghproxy.net/` + 直链
+
+> 源池会随可用性调整：`ghfast.top`、`gh.llkk.cc` 在 2026-11-09 已不可达，故自 1.6.1 起移除；
+> `gh-proxy.net` 会 302 跳转到广告站，**不要使用**。
 
 ## 内网镜像目录
 
@@ -81,13 +83,19 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 - 启动器启动时读取 `https://njitmc.club/update/njitmcl.json`，比较其中的 `versionCode` 与本机内置值。
 - **只比 `versionCode`**：`NewCode <= VersionCode` 即判定为最新。因此同一版本号重新构建不会被已更新用户收到，需要替换构建时必须递增版本号。
-- 清单里每个文件带 5 个下载源与 `sha256`，客户端按顺序回退，校验通过才落盘。
+- 清单里每个文件带多个下载源（1.6.1 为 4 个）与 `sha256`，客户端按顺序回退，校验通过才落盘。
+- 1.6.1 起下载层带超时（连接 8s / 读写 20s）与单源重试：某个源返回 5xx 或超时会换下一个源，4xx 直接放弃该源，不再因为一个源失败而整次更新失败。
 - 清单与官网下载页由官网服务器（`njitmc.club`）托管；GitHub 只负责存放二进制。
 
 ## 版本一览
 
 | 版本 | Tag | 主程序 | 资产 | 发布 |
 |---|---|---|---|---|
+| 1.6.1 | `v1.6.1` | 5.8 MB | 10 | 2026-11-09 |
+| 1.6.0 | `v1.6.0` | 5.8 MB | 10 | 2026-11-09 |
+| 1.5.9 | `v1.5.9` | 5.8 MB | 10 | 2026-11-08 |
+| 1.5.8 | `v1.5.8` | 5.8 MB | 10 | 2026-11-05 |
+| 1.5.7 | `v1.5.7` | 5.8 MB | 10 | 2026-11-05 |
 | 1.5.6 | `v1.5.6` | 5.8 MB | 10 | 2026-11-01 |
 | 1.5.5 | `v1.5.5` | 5.8 MB | 10 | 2026-10-31 |
 | 1.5.4 | `v1.5.4` | 5.8 MB | 10 | 2026-10-30 |
@@ -118,7 +126,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 十步，缺一步视为未发布：**定版本 → 编译 → 打包 → GitHub → 源码同步 → 内网 → 清单 → 官网 → 验证 → 建档**。
 
 1. 改 `Modules\Base\ModBase.vb` 的 `VersionBaseName` 与 `VersionCode`（Release 分支与快照分支同时改，快照 = 正式 + 1）。
-2. 编译必须用 VS2022 BuildTools 的 MSBuild，并先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`（`dotnet msbuild` 会因缺 XAML 代码生成失败）。快照分支用 `Plain Craft Launcher 2.local.vbproj`。
+2. 编译必须用 VS2022 BuildTools 的 MSBuild，并先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`（`dotnet msbuild` 会因缺 XAML 代码生成失败）。快照分支用 `Plain Craft Launcher 2.local.vbproj`。若 `nuget.org` 不可达（校园网常见），加 `-p:RestoreSources=https://repo.huaweicloud.com/repository/nuget/v3/index.json`。
 3. 收集 9 个文件并打 zip，记录 sha256 与大小。
 4. 在本仓库创建 `v<版本>` Release，上传 10 个资产（同 tag 重发要先删同名资产）。
 5. **源码同步**：把定制源码提交到 [PCL-NJITMCL-Source](https://github.com/njit-fkcy/PCL-NJITMCL-Source) 的 `main` 并打 tag `v<版本>`；同一份快照打成 `PCL-NJITMCL-Source-<版本>.tar.gz`（`tar --exclude=.git`），与 `SHA256.txt` 上传到内网 `/var/www/modpacks/_launcher/_source/v<版本>/`（644）。快照排除 `.git`、`.github`、`bin`、`obj`、`.vs`、`WireGuard\`、`最新正式版.zip`、`*.local.vbproj`。
@@ -135,6 +143,9 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 | 现象 | 处理 |
 |---|---|
 | 双击没反应 | 启动器是单实例（互斥名 `NJITMCL_SingletonMutex`），先关掉已在运行的实例；仍不行看 `PCL\Log1.txt` |
+| 更新失败，提示「下载失败：xxx（远程服务器返回错误: (522)）」 | 1.6.1 之前的缺陷：中转站 5xx 会一票否决整次更新。1.6.1 起改为逐源重试；卡在旧版的先手动下载 zip 覆盖一次 |
+| 更新失败，提示「更新清单中没有启动器主程序」 | 1.6.1 之前的缺陷：把 exe 改过名的安装识别不到主程序。手动覆盖一次即可，**exe 不必改回原名** |
+| 启动器被改过名（如 `PCL (NJIT MCL).exe`） | 1.6.1 起不是问题：更新按实际文件名落盘，并自动补齐同名 `.config`；只有从旧版升级到 1.6.1 这一步需要手动覆盖 |
 | GitHub 直链 404 | 检查仓库名与 owner：启动器 `njit-fkcy/PCL-NJITMCL`，整合包 `/PCL-NJITMCL-Modpacks` |
 | 下载很慢 / 卡住 | 客户端会自动换源；校园网内建议用「校园内网」源直连 |
 | 提示已是最新但想回退 | 直接下载对应版本的 zip 覆盖，注意 `versionCode` 只增不减，回退后不会再收到更新提示 |
