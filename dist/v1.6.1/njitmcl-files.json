@@ -1,0 +1,131 @@
+{
+    "version":  "1.6.1",
+    "versionCode":  449,
+    "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe",
+    "sha256":  "2ee5dd4809686f036ad374983f380bf96b7ebb5a1a529340bacc405d2296b2c4",
+    "size":  6104576,
+    "force":  false,
+    "publishedAt":  "2026-11-09T17:05:55+08:00",
+    "changelog":  "（填写本版变更摘要）",
+    "package":  {
+                    "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL-1.6.1.zip",
+                    "urls":  [
+                                 "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL-1.6.1.zip",
+                                 "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/PCL-NJITMCL-1.6.1.zip",
+                                 "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL-1.6.1.zip",
+                                 "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL-1.6.1.zip"
+                             ],
+                    "sha256":  "9668855b7450f07441116299238c6023397e410e32874c8fb6a03136cd7f7d7c",
+                    "size":  6944406
+                },
+    "files":  [
+                  {
+                      "path":  "PCL-NJITMCL.exe",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/PCL-NJITMCL.exe",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe"
+                               ],
+                      "sha256":  "2ee5dd4809686f036ad374983f380bf96b7ebb5a1a529340bacc405d2296b2c4",
+                      "size":  6104576
+                  },
+                  {
+                      "path":  "PCL-NJITMCL.exe.config",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe.config",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe.config",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/PCL-NJITMCL.exe.config",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe.config",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.exe.config"
+                               ],
+                      "sha256":  "387f57261eb2041d0eb9aca5085dd2d61ba3f429d782ad3bc5049a3328cd9769",
+                      "size":  1560
+                  },
+                  {
+                      "path":  "PCL-NJITMCL.xml",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.xml",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.xml",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/PCL-NJITMCL.xml",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.xml",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCL-NJITMCL.xml"
+                               ],
+                      "sha256":  "0139cecadd11029fd5ad8a6d3ae54b099e532b8ee17b2b8ce4826bbcd24f9626",
+                      "size":  223493
+                  },
+                  {
+                      "path":  "MeloongCore.dll",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.dll",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.dll",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/MeloongCore.dll",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.dll",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.dll"
+                               ],
+                      "sha256":  "820e552585da99e90eff6249e3ae310ef646eedf73687397c39b22e83cd9ad69",
+                      "size":  148992
+                  },
+                  {
+                      "path":  "MeloongCore.Wpf.dll",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.Wpf.dll",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.Wpf.dll",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/MeloongCore.Wpf.dll",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.Wpf.dll",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/MeloongCore.Wpf.dll"
+                               ],
+                      "sha256":  "98a3b48d41aa89eaa4ec6f6c51c8889a2ce061eb56404505572914a7819d03a5",
+                      "size":  34304
+                  },
+                  {
+                      "path":  "Microsoft.Win32.Registry.dll",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/Microsoft.Win32.Registry.dll",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/Microsoft.Win32.Registry.dll",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/Microsoft.Win32.Registry.dll",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/Microsoft.Win32.Registry.dll",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/Microsoft.Win32.Registry.dll"
+                               ],
+                      "sha256":  "e9a9d281c1a708aaae366f82fd6a1742f65da2918cc4fa5eaaaada0be24277d9",
+                      "size":  26496
+                  },
+                  {
+                      "path":  "PCLCS.dll",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCLCS.dll",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCLCS.dll",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/PCLCS.dll",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCLCS.dll",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/PCLCS.dll"
+                               ],
+                      "sha256":  "89163015392541204937b8284d7f2d5b0ee2354b8fcf4b7c22873f2d619c0e9e",
+                      "size":  1102848
+                  },
+                  {
+                      "path":  "wg.exe",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wg.exe",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wg.exe",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/wg.exe",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wg.exe",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wg.exe"
+                               ],
+                      "sha256":  "e1f8cb5c9e30a878fa7eb0b2251bb4eb4946e669063e6fd5e4383ca4bd0dcaf2",
+                      "size":  140408
+                  },
+                  {
+                      "path":  "wireguard.exe",
+                      "url":  "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wireguard.exe",
+                      "urls":  [
+                                   "https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wireguard.exe",
+                                   "https://wg.njit-fkcy.top/modpacks/_launcher/v1.6.1/wireguard.exe",
+                                   "https://gh-proxy.com/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wireguard.exe",
+                                   "https://ghproxy.net/https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v1.6.1/wireguard.exe"
+                               ],
+                      "sha256":  "04c71fb1a555a6ace40d3ae9113c90c4829d7ca1d6c903fd20a8d41a0e2bef94",
+                      "size":  9354360
+                  }
+              ]
+}

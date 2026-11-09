@@ -499,8 +499,9 @@ Public Module ModUpdate
         Dim WebEx As Net.WebException = TryCast(ex, Net.WebException)
         If WebEx Is Nothing Then Return False
         Select Case WebEx.Status
-            Case Net.WebExceptionStatus.Timeout, Net.WebExceptionStatus.ConnectionFailure,
-                 Net.WebExceptionStatus.ConnectFailure, Net.WebExceptionStatus.ReceiveFailure
+            Case Net.WebExceptionStatus.Timeout, Net.WebExceptionStatus.ConnectFailure,
+                 Net.WebExceptionStatus.ConnectionClosed, Net.WebExceptionStatus.ReceiveFailure,
+                 Net.WebExceptionStatus.SendFailure, Net.WebExceptionStatus.KeepAliveFailure
                 Return True
         End Select
         If WebEx.Response IsNot Nothing Then
