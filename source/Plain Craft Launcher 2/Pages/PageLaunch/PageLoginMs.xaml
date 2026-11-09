@@ -32,5 +32,7 @@
             <local:MyTextButton Text="»  前往官网" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://www.minecraft.net/zh-hans"
                             Grid.Column="2" />
         </Grid>
+        <local:MyButton x:Name="BtnSiteLogin" Text="用正版账号登录社团网站" Height="28" Margin="0,14,0,0" Grid.Row="5" Grid.ColumnSpan="2" ColorType="Highlight" />
+        <ProgressBar x:Name="BarSiteLogin" Height="3" Margin="0,10,0,0" Grid.Row="6" Grid.ColumnSpan="2" IsIndeterminate="True" Visibility="Collapsed" />
     </Grid>
 </StackPanel>

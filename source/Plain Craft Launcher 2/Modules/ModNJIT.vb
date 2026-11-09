@@ -31,9 +31,15 @@ Public Module ModNJIT
     Public Const WgTunnelName As String = "NJITMCL"
 
     ''' <summary>
-    ''' 社团官网。
+    ''' 社团网站地址。测试时可用环境变量 NJITMCL_SITE 覆盖，发布版默认正式站。
     ''' </summary>
-    Public Const ClubHomepage As String = "https://njitmc.club"
+    Public ReadOnly Property ClubHomepage As String
+        Get
+            Dim SiteOverride As String = Environment.GetEnvironmentVariable("NJITMCL_SITE")
+            If Not String.IsNullOrWhiteSpace(SiteOverride) Then Return SiteOverride.TrimEnd("/"c)
+            Return "https://njitmc.club"
+        End Get
+    End Property
     ''' <summary>
     ''' 注册与入服教程。
     ''' </summary>
@@ -186,6 +192,25 @@ Public Module ModNJIT
         Logger.Info("MUA 登录成功，准备自动连接校内组网")
         RunInThread(AddressOf WgAutoConnectSafe)
     End Sub
+
+    ''' <summary>
+    ''' 把正版登录凭证交给社团网站，返回一次性登录码。必须在后台线程调用。
+    ''' </summary>
+    Public Function RequestSiteLogin(AccessToken As String, Uuid As String, UserName As String) As String
+        If String.IsNullOrWhiteSpace(AccessToken) Then Throw New Exception("正版登录凭证为空")
+        Dim Request As New JObject(
+            New JProperty("accessToken", AccessToken),
+            New JProperty("uuid", Uuid),
+            New JProperty("name", UserName))
+        Dim JsonText As String = NetRequestByClient(ClubHomepage & "/api/account/launcher-login", HttpMethod.Post,
+            Content:=Request.ToString(Newtonsoft.Json.Formatting.None),
+            Headers:={{"Accept-Language", "zh-CN"}},
+            ContentType:="application/json; charset=utf-8", RequireJson:=True, Timeout:=20000)
+        Dim Json As JObject = JsonText.DeserializeJson()
+        Dim Code As String = Json("code")?.ToString()
+        If String.IsNullOrWhiteSpace(Code) Then Throw New Exception("网站没有返回登录码")
+        Return Code
+    End Function
 
     ''' <summary>
     ''' 请求第三方认证服务器完成账号认证。会阻塞，必须在后台线程调用。

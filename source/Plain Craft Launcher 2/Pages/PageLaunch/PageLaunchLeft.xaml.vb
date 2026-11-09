@@ -309,14 +309,10 @@ UnknownType:
                 '第三方登录时不要让按钮显示成「MUA」
                 RadioLoginTypeMua.Text = If(GetAuthServer() = MuaAuthServer, "MUA", "第三方")
                 If RadioLoginTypeMua.Checked Then
-                    'MUA 第三方登录：自动写入认证服务器配置
+                    'MUA 登录：固定进入 MUA 皮肤站登录页，不回落到第三方登录页
                     ApplyMuaAuthSettings()
                     Settings.Set("LoginType", McLoginType.Auth)
-                    If Settings.Get(Of String)("CacheAuthAccess") = "" Then
-                        Type = PageType.Auth
-                    Else
-                        Type = PageType.AuthSkin
-                    End If
+                    Type = PageType.AuthSkin
                 ElseIf RadioLoginType5.Checked Then
                     If Settings.Get(Of String)("CacheMsV2Access") = "" Then
                         Type = PageType.Ms
@@ -388,8 +384,8 @@ UnknownType:
     End Sub
     Private Sub RadioLoginType_Change(sender As Object, raiseByMouse As Boolean) Handles RadioLoginType0.Check, RadioLoginType5.Check, RadioLoginTypeMua.Check
         If raiseByMouse Then
-            '手动切换登录方式时，同步版本级的登录页面类型，避免被 MUA 的第三方登录设置锁死
-            Dim PageTypeNow As Integer = If(RadioLoginTypeMua.Checked, 4, 0)
+            'MUA 与正版、离线都属于默认的三选一页面，不切到第三方登录页
+            Dim PageTypeNow As Integer = 0
             If McInstanceSelected IsNot Nothing Then Settings.Set("VersionServerLogin", PageTypeNow, Instance:=McInstanceSelected)
             Settings.Set("LoginPageType", PageTypeNow)
             RefreshPage(True, True)

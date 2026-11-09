@@ -121,6 +121,8 @@ RetryCacheCheck:
                 Logger.Info($"识别码：{Identify}")
             End If
             Logger.Info($"程序路径：{PathExe}")
+            ModSiteAuth.RegisterProtocol()
+            ModSiteAuth.HandlePendingProtocol()
             Logger.Info($"系统编码：{Encoding.Default.HeaderName} ({Encoding.Default.CodePage}, GBK={IsGBKEncoding})")
             Logger.Info($"管理员权限：{WindowsUtils.HasAdminRole()}")
             '检测异常环境
@@ -156,7 +158,18 @@ RetryCacheCheck:
             Dim MutexCreatedNew As Boolean
             '使用独立互斥名，避免与原版 PCL 互斥，两个启动器可以同时打开
             PclMutex = New Mutex(True, "NJITMCL_SingletonMutex", MutexCreatedNew)
-            If MutexCreatedNew Then Return
+            If MutexCreatedNew Then
+                ModSiteAuth.StartProtocolPipe()
+                '首次启动就带 njitmcl:// 参数时先暂存，等日志与 UI 初始化后再处理
+                If e.Args.Length > 0 AndAlso e.Args(0).StartsWith("njitmcl://", StringComparison.OrdinalIgnoreCase) Then
+                    ModSiteAuth.PendingProtocol = e.Args(0)
+                End If
+                Return
+            End If
+            '将 njitmcl:// 参数转交给已运行的主实例
+            If e.Args.Length > 0 AndAlso e.Args(0).StartsWith("njitmcl://", StringComparison.OrdinalIgnoreCase) Then
+                ModSiteAuth.SendProtocol(e.Args(0))
+            End If
             Logger.Warn("已有一个 NJITMCL 实例正在运行")
             '等待已有的 NJITMCL 退出
             If e.Args.Length > 0 AndAlso e.Args(0) = "--wait" Then

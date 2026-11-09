@@ -64,6 +64,41 @@ Public Class PageLoginMs
         Return IsVaild(GetLoginData())
     End Function
 
+    Private Sub BtnSiteLogin_Click(sender As Object, e As EventArgs) Handles BtnSiteLogin.Click
+        Dim LoginData As McLoginMs = GetLoginData()
+        If String.IsNullOrWhiteSpace(LoginData.OAuthRefreshToken) Then
+            Hint("请先添加并登录微软账号，再登录社团网站", HintType.Blue)
+            Return
+        End If
+        BtnSiteLogin.IsEnabled = False
+        BtnSiteLogin.Text = "正在登录社团网站，请稍候…"
+        BarSiteLogin.Visibility = Visibility.Visible
+        RunInNewThread(
+        Sub()
+            Try
+                McLoginMsLoader.Start(LoginData, IsForceRestart:=True)
+                Do While McLoginMsLoader.State = LoadState.Loading
+                    Thread.Sleep(50)
+                Loop
+                If McLoginMsLoader.State <> LoadState.Finished OrElse McLoginMsLoader.Error IsNot Nothing Then
+                    Throw New Exception(If(McLoginMsLoader.Error?.Message, "读取正版登录信息失败"))
+                End If
+                Dim Output As McLoginResult = McLoginMsLoader.Output
+                If String.IsNullOrWhiteSpace(Output.AccessToken) Then Throw New Exception("没有取得正版登录凭证")
+                Dim Code As String = ModNJIT.RequestSiteLogin(Output.AccessToken, Output.Uuid, Output.Name)
+                OpenWebsite(ModNJIT.ClubHomepage & "/#mc-login?code=" & Uri.EscapeDataString(Code))
+            Catch ex As Exception
+                Hint("登录社团网站失败：" & ex.Message, HintType.Red)
+            Finally
+                RunInUi(Sub()
+                    BtnSiteLogin.Text = "用正版账号登录社团网站"
+                    BtnSiteLogin.IsEnabled = True
+                    BarSiteLogin.Visibility = Visibility.Collapsed
+                End Sub)
+            End Try
+        End Sub)
+    End Sub
+
     Private Sub BtnLogin_Click(sender As Object, e As EventArgs) Handles BtnLogin.Click
         ComboAccounts.IsEnabled = False
         BtnLogin.IsEnabled = False
