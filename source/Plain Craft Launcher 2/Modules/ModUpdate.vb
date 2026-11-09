@@ -111,6 +111,45 @@ Public Module ModUpdate
             Directory.CreateDirectory(TempFolder)
             Dim Plan As New JArray()
             Dim UpdaterExe As String = ""
+            '当前安装实际用的文件名：用户可以把启动器改名，替换时必须写回他自己的名字
+            Dim ExeName As String = IO.Path.GetFileName(PathExe)
+            Dim ExeBase As String = IO.Path.GetFileNameWithoutExtension(PathExe)
+            '先认主程序：不能只按文件名比，改名过的安装一个都对不上
+            Dim MainEntry As String = ""
+            Dim MainBase As String = ""
+            For Each Item As JToken In Files
+                Dim Candidate As String = Item("path")?.ToString()
+                If String.IsNullOrWhiteSpace(Candidate) Then Continue For
+                Dim CandidateName As String = IO.Path.GetFileName(Candidate)
+                If CandidateName.Equals(ExeName, StringComparison.OrdinalIgnoreCase) OrElse
+                   CandidateName.Equals("PCL-NJITMCL.exe", StringComparison.OrdinalIgnoreCase) OrElse
+                   CandidateName.Equals("Plain Craft Launcher 2.exe", StringComparison.OrdinalIgnoreCase) Then
+                    MainEntry = Candidate
+                    MainBase = IO.Path.GetFileNameWithoutExtension(CandidateName)
+                    Exit For
+                End If
+            Next
+            If MainEntry = "" Then
+                '兜底：清单里只有一个非组件的 exe，就是它
+                Dim Candidates As New List(Of String)
+                For Each Item As JToken In Files
+                    Dim Candidate As String = Item("path")?.ToString()
+                    If String.IsNullOrWhiteSpace(Candidate) Then Continue For
+                    Dim CandidateName As String = IO.Path.GetFileName(Candidate)
+                    If Not CandidateName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    If CandidateName.Equals("wg.exe", StringComparison.OrdinalIgnoreCase) OrElse
+                       CandidateName.Equals("wireguard.exe", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    Candidates.Add(Candidate)
+                Next
+                If Candidates.Count = 1 Then
+                    MainEntry = Candidates(0)
+                    MainBase = IO.Path.GetFileNameWithoutExtension(MainEntry)
+                End If
+            End If
+            If MainEntry <> "" AndAlso
+               Not IO.Path.GetFileName(MainEntry).Equals(ExeName, StringComparison.OrdinalIgnoreCase) Then
+                Logger.Info($"启动器已改名：清单 {IO.Path.GetFileName(MainEntry)} → 安装 {ExeName}，按当前文件名落盘")
+            End If
             For Each Item As JToken In Files
                 Dim RelativePath As String = Item("path")?.ToString()
                 Dim ExpectedHash As String = If(Item("sha256")?.ToString(), "").ToLowerInvariant()
@@ -159,23 +198,26 @@ Public Module ModUpdate
                     '多源下载：逐源重试，5xx / 超时都换下一个源，全部失败才抛错
                     DownloadFromPool(Attempts, TempPath, ExpectedHash, Nothing, RelativePath)
                     Dim Entry As New JObject()
-                    Entry.Add("path", RelativePath)
+                    '主程序与它的伴生文件按当前安装的名字落盘，其余原样
+                    Entry.Add("path", MapProgramFileName(RelativePath, MainBase, ExeName, ExeBase))
                     Entry.Add("src", TempPath)
                     Plan.Add(Entry)
                 End If
                 '更新进程必须从临时目录启动，否则会占用安装目录里的 dll 导致替换失败
-                If RelativePath.Equals(IO.Path.GetFileName(PathExe), StringComparison.OrdinalIgnoreCase) Then
-                    If Not FileUtils.Exists(TempPath) Then
+                If RelativePath.Equals(MainEntry, StringComparison.OrdinalIgnoreCase) Then
+                    If Not FileUtils.Exists(TempPath) AndAlso FileUtils.Exists(LocalPath) Then
                         IO.File.Copy(LocalPath, TempPath, True)
                     End If
-                    UpdaterExe = TempPath
+                    If FileUtils.Exists(TempPath) Then UpdaterExe = TempPath
                 End If
             Next
             If Plan.Count = 0 Then
                 RunInUi(Sub() Hint("更新文件已是最新，无需下载"))
                 Return
             End If
-            If UpdaterExe = "" OrElse Not FileUtils.Exists(UpdaterExe) Then Throw New Exception("更新清单中没有启动器主程序")
+            If UpdaterExe = "" Then
+                Throw New Exception($"更新清单中没有可用的启动器主程序（未找到 .exe 条目，或本地缺少 {ExeName}）")
+            End If
             Dim PlanFile As String = IO.Path.Combine(TempFolder, "plan.json")
             Dim PlanJson As New JObject()
             PlanJson.Add("files", Plan)
@@ -400,6 +442,22 @@ Public Module ModUpdate
     End Sub
 
 #Region "多源下载"
+
+    ''' <summary>
+    ''' 把清单里的规范文件名映射到当前安装实际使用的文件名。
+    ''' 只改主程序及其伴生文件（&lt;MainBase&gt;.exe / .exe.config / .xml），
+    ''' 其余（dll、wg.exe、wireguard.exe）原样返回——组件的名字不能跟着启动器一起改。
+    ''' </summary>
+    Private Function MapProgramFileName(RelativePath As String, MainBase As String,
+                                        ExeName As String, ExeBase As String) As String
+        If String.IsNullOrWhiteSpace(MainBase) Then Return RelativePath
+        Dim FileName As String = IO.Path.GetFileName(RelativePath)
+        Dim DirPart As String = RelativePath.Substring(0, RelativePath.Length - FileName.Length)
+        If FileName.Equals(MainBase & ".exe", StringComparison.OrdinalIgnoreCase) Then Return DirPart & ExeName
+        If FileName.Equals(MainBase & ".exe.config", StringComparison.OrdinalIgnoreCase) Then Return DirPart & ExeName & ".config"
+        If FileName.Equals(MainBase & ".xml", StringComparison.OrdinalIgnoreCase) Then Return DirPart & ExeBase & ".xml"
+        Return RelativePath
+    End Function
 
     ''' <summary>
     ''' 从多个源依次下载，返回成功的源地址。
