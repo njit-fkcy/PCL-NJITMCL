@@ -126,6 +126,7 @@ RetryCacheCheck:
             If Not ProgramFileName.Equals("PCL-NJITMCL.exe", StringComparison.OrdinalIgnoreCase) Then
                 Logger.Info($"检测到启动器已改名：{ProgramFileName}（更新时会按当前文件名落盘）")
             End If
+            EnsureCompanionConfig()
             ModSiteAuth.RegisterProtocol()
             ModSiteAuth.HandlePendingProtocol()
             Logger.Info($"系统编码：{Encoding.Default.HeaderName} ({Encoding.Default.CodePage}, GBK={IsGBKEncoding})")
@@ -306,6 +307,30 @@ RetryCacheCheck:
                         FrmLoginAuth.TextPass.Password = If(Dict.Values.Any, Dict.Values(0), "")
                 End Select
         End Select
+    End Sub
+
+    ''' <summary>
+    ''' 用户可能把 exe 改成别的名字，但 App.config 还是按原名生成的 <c>PCL-NJITMCL.exe.config</c>。
+    ''' .NET 只认「与 exe 同名」的 .config，缺了它 useUnsafeHeaderParsing、绑定重定向、
+    ''' generatePublisherEvidence 全部失效——表现为网络请求偶发失败、启动变慢这类"怪问题"。
+    ''' 这里补齐一份，本次启动不生效（配置在进程启动时就读完了），下次启动起效。
+    ''' </summary>
+    Private Sub EnsureCompanionConfig()
+        Try
+            Dim Want As String = PathExe & ".config"
+            If IO.File.Exists(Want) Then Return
+            Dim Folder As String = IO.Path.GetDirectoryName(PathExe) & "\"
+            For Each Candidate As String In {"PCL-NJITMCL.exe.config", "Plain Craft Launcher 2.exe.config"}
+                Dim Source As String = Folder & Candidate
+                If IO.File.Exists(Source) Then
+                    IO.File.Copy(Source, Want, False)
+                    Logger.Info($"已补齐配置文件：{Candidate} → {IO.Path.GetFileName(Want)}（下次启动生效）")
+                    Return
+                End If
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "补齐配置文件失败（目录可能只读），不影响本次启动")
+        End Try
     End Sub
 
 End Class
