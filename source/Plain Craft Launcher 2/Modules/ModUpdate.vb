@@ -112,8 +112,8 @@ Public Module ModUpdate
             Dim Plan As New JArray()
             Dim UpdaterExe As String = ""
             '当前安装实际用的文件名：用户可以把启动器改名，替换时必须写回他自己的名字
-            Dim ExeName As String = IO.Path.GetFileName(PathExe)
-            Dim ExeBase As String = IO.Path.GetFileNameWithoutExtension(PathExe)
+            Dim ExeName As String = ProgramFileName
+            Dim ExeBase As String = ProgramBaseName
             '先认主程序：不能只按文件名比，改名过的安装一个都对不上
             Dim MainEntry As String = ""
             Dim MainBase As String = ""
@@ -282,8 +282,8 @@ Public Module ModUpdate
             UpdaterExe = IO.Path.Combine(ExtractFolder, "PCL-NJITMCL.exe")
             If Not FileUtils.Exists(UpdaterExe) Then Throw New Exception("完整包中缺少启动器主程序")
             '只替换程序文件；目标名跟随当前安装的文件名，兼容重命名后的安装目录
-            Dim ExeName As String = IO.Path.GetFileName(PathExe)
-            Dim ExeBase As String = IO.Path.GetFileNameWithoutExtension(PathExe)
+            Dim ExeName As String = ProgramFileName
+            Dim ExeBase As String = ProgramBaseName
             Dim ProgramFiles As New List(Of KeyValuePair(Of String, String)) From {
                 New KeyValuePair(Of String, String)("PCL-NJITMCL.exe", ExeName),
                 New KeyValuePair(Of String, String)("PCL-NJITMCL.exe.config", ExeName & ".config"),

@@ -121,6 +121,11 @@ RetryCacheCheck:
                 Logger.Info($"识别码：{Identify}")
             End If
             Logger.Info($"程序路径：{PathExe}")
+            '启动器允许被改名，但更新与伴生文件（.exe.config / .xml）必须跟着实际名字走。
+            '这里只留一条线索，方便从 Log1.txt 一眼看出"这个用户改过名"。
+            If Not ProgramFileName.Equals("PCL-NJITMCL.exe", StringComparison.OrdinalIgnoreCase) Then
+                Logger.Info($"检测到启动器已改名：{ProgramFileName}（更新时会按当前文件名落盘）")
+            End If
             ModSiteAuth.RegisterProtocol()
             ModSiteAuth.HandlePendingProtocol()
             Logger.Info($"系统编码：{Encoding.Default.HeaderName} ({Encoding.Default.CodePage}, GBK={IsGBKEncoding})")

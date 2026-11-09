@@ -41,6 +41,23 @@ Public Module ModBase
     ''' </summary>
     Public PathExe As String = Paths.Base & AppDomain.CurrentDomain.SetupInformation.ApplicationName
     ''' <summary>
+    ''' 当前运行的程序文件名（含扩展名）。
+    ''' 用户可能给 exe 改过名，凡是与程序身份有关的判断都必须经由这里，不要写死 "PCL-NJITMCL.exe"。
+    ''' </summary>
+    Public ReadOnly Property ProgramFileName As String
+        Get
+            Return IO.Path.GetFileName(PathExe)
+        End Get
+    End Property
+    ''' <summary>
+    ''' 当前运行的程序名（不含扩展名），用于派生 .xml 等伴生文件的名字。
+    ''' </summary>
+    Public ReadOnly Property ProgramBaseName As String
+        Get
+            Return IO.Path.GetFileNameWithoutExtension(PathExe)
+        End Get
+    End Property
+    ''' <summary>
     ''' 程序内嵌图片文件夹路径，以 / 结尾。
     ''' </summary>
     Public PathImage As String = "pack://application:,,,/Plain Craft Launcher 2;component/Images/"
