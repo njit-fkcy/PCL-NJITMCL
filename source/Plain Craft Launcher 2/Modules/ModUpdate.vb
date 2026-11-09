@@ -79,14 +79,9 @@ Public Module ModUpdate
         Try
             RunInUi(Sub() Hint("正在下载更新……"))
             Directory.CreateDirectory(PathTemp & "Cache\")
-            Using Client As New Net.WebClient()
-                Client.DownloadFile(Url, Target)
-            End Using
+            '旧格式清单只有单一地址，也走同一套超时与重试
+            DownloadFromPool(New List(Of String) From {Url}, Target, ExpectedHash, Nothing, "主程序")
             If Not FileUtils.Exists(Target) Then Throw New Exception("下载的更新包不存在")
-            If ExpectedHash <> "" AndAlso GetFileSha256(Target) <> ExpectedHash.ToLowerInvariant() Then
-                FileUtils.Delete(Target)
-                Throw New Exception("更新包校验失败，请重试")
-            End If
             Logger.Info($"更新包已下载：{Target}（{New FileInfo(Target).Length} 字节）")
             RunInUi(
             Sub()
@@ -161,26 +156,8 @@ Public Module ModUpdate
                     Logger.Info($"跳过未变动的文件：{RelativePath}")
                 Else
                     Directory.CreateDirectory(IO.Path.GetDirectoryName(TempPath))
-                    Dim Downloaded As Boolean = False
-                    Dim LastError As String = ""
-                    For Each OneUrl As String In Attempts
-                        Try
-                            If FileUtils.Exists(TempPath) Then FileUtils.Delete(TempPath)
-                            Using Client As New Net.WebClient()
-                                Client.Headers.Add("User-Agent", $"PCL2/{VersionBaseName}.{CInt(BuildType)}")
-                                Client.DownloadFile(OneUrl, TempPath)
-                            End Using
-                            If Not FileUtils.Exists(TempPath) Then Throw New Exception("下载后文件不存在")
-                            If ExpectedHash <> "" AndAlso GetFileSha256(TempPath) <> ExpectedHash Then Throw New Exception("SHA256 校验不一致")
-                            Downloaded = True
-                            Logger.Info($"已下载：{RelativePath}（来源 {OneUrl}）")
-                            Exit For
-                        Catch ex As Exception
-                            LastError = ex.Message
-                            Logger.Warn($"下载源失败（{OneUrl}）：{ex.Message}")
-                        End Try
-                    Next
-                    If Not Downloaded Then Throw New Exception($"下载失败：{RelativePath}（{LastError}）")
+                    '多源下载：逐源重试，5xx / 超时都换下一个源，全部失败才抛错
+                    DownloadFromPool(Attempts, TempPath, ExpectedHash, Nothing, RelativePath)
                     Dim Entry As New JObject()
                     Entry.Add("path", RelativePath)
                     Entry.Add("src", TempPath)
@@ -256,26 +233,8 @@ Public Module ModUpdate
                 Next
                 Urls = Ordered
             End If
-            Dim Downloaded As Boolean = False
-            Dim LastError As String = ""
-            For Each OneUrl As String In Urls
-                Try
-                    If FileUtils.Exists(ZipPath) Then FileUtils.Delete(ZipPath)
-                    Using Client As New Net.WebClient()
-                        Client.Headers.Add("User-Agent", $"PCL2/{VersionBaseName}.{CInt(BuildType)}")
-                        Client.DownloadFile(OneUrl, ZipPath)
-                    End Using
-                    If Not FileUtils.Exists(ZipPath) Then Throw New Exception("下载后文件不存在")
-                    If ExpectedHash <> "" AndAlso GetFileSha256(ZipPath) <> ExpectedHash Then Throw New Exception("SHA256 校验不一致")
-                    Downloaded = True
-                    Logger.Info($"完整包已下载：{ZipPath}（来源 {OneUrl}）")
-                    Exit For
-                Catch ex As Exception
-                    LastError = ex.Message
-                    Logger.Warn($"下载源失败（{OneUrl}）：{ex.Message}")
-                End Try
-            Next
-            If Not Downloaded Then Throw New Exception("下载完整包失败：" & LastError)
+            '多源下载：逐源重试，5xx / 超时都换下一个源，全部失败才抛错
+            DownloadFromPool(Urls, ZipPath, ExpectedHash, Nothing, "完整包")
             RunInUi(Sub() Hint("正在解压更新包……"))
             IO.Compression.ZipFile.ExtractToDirectory(ZipPath, ExtractFolder)
             UpdaterExe = IO.Path.Combine(ExtractFolder, "PCL-NJITMCL.exe")
@@ -439,5 +398,96 @@ Public Module ModUpdate
             Logger.Error(ex, "更新替换失败", LogBehavior.Alert)
         End Try
     End Sub
+
+#Region "多源下载"
+
+    ''' <summary>
+    ''' 从多个源依次下载，返回成功的源地址。
+    ''' 单源失败后立刻换下一个源；5xx（含中转站的 520/522/504）与超时按可重试处理，
+    ''' 同一源最多试 RetryPerSource 次，全部失败才抛错。
+    ''' </summary>
+    Private Function DownloadFromPool(Urls As List(Of String), Target As String, ExpectedHash As String,
+                                     Optional Progress As Action(Of Long, Long) = Nothing,
+                                     Optional DisplayName As String = "",
+                                     Optional RetryPerSource As Integer = 2) As String
+        Dim Label As String = If(String.IsNullOrWhiteSpace(DisplayName), IO.Path.GetFileName(Target), DisplayName)
+        Dim LastError As String = ""
+        For Each OneUrl As String In Urls
+            For Attempt As Integer = 1 To RetryPerSource
+                Try
+                    If FileUtils.Exists(Target) Then FileUtils.Delete(Target)
+                    DownloadSingle(OneUrl, Target, Progress)
+                    If Not FileUtils.Exists(Target) Then Throw New Exception("下载后文件不存在")
+                    If ExpectedHash <> "" AndAlso GetFileSha256(Target) <> ExpectedHash.ToLowerInvariant() Then
+                        Throw New Exception("SHA256 校验不一致")
+                    End If
+                    Logger.Info($"已下载 {Label}（来源 {OneUrl}）")
+                    Return OneUrl
+                Catch ex As Exception
+                    LastError = $"{OneUrl} → {ex.Message}"
+                    Logger.Warn($"下载源失败（第 {Attempt}/{RetryPerSource} 次）：{LastError}")
+                    If Not IsRetryableDownloadError(ex) Then Exit For
+                    Thread.Sleep(300 * Attempt)
+                End Try
+            Next
+        Next
+        Throw New Exception($"下载失败：{Label}（全部 {Urls.Count} 个源均不可用，最后一次：{LastError}）")
+    End Function
+
+    ''' <summary>
+    ''' 超时、连接中断、以及任何 5xx 都视为可重试；4xx（404 之类）说明该源本身没有这个文件，不再重试。
+    ''' </summary>
+    Private Function IsRetryableDownloadError(ex As Exception) As Boolean
+        Dim WebEx As Net.WebException = TryCast(ex, Net.WebException)
+        If WebEx Is Nothing Then Return False
+        Select Case WebEx.Status
+            Case Net.WebExceptionStatus.Timeout, Net.WebExceptionStatus.ConnectionFailure,
+                 Net.WebExceptionStatus.ConnectFailure, Net.WebExceptionStatus.ReceiveFailure
+                Return True
+        End Select
+        If WebEx.Response IsNot Nothing Then
+            Try
+                Return CInt(DirectCast(WebEx.Response, Net.HttpWebResponse).StatusCode) >= 500
+            Catch
+                Return False
+            End Try
+        End If
+        Return False
+    End Function
+
+    ''' <summary>
+    ''' 单源下载：连接 8 秒、读写 20 秒无响应即失败。
+    ''' 内网镜像与各中转站强制不走系统代理，避免代理二次转发把 5xx 搅得更难定位。
+    ''' </summary>
+    Private Sub DownloadSingle(Url As String, Target As String, Progress As Action(Of Long, Long))
+        Dim Req As Net.HttpWebRequest = DirectCast(Net.WebRequest.Create(Url), Net.HttpWebRequest)
+        Req.Method = "GET"
+        Req.Timeout = 8000
+        Req.ReadWriteTimeout = 20000
+        Req.AllowAutoRedirect = True
+        Req.UserAgent = $"PCL2/{VersionBaseName}.{CInt(BuildType)}"
+        If Url.Contains("njit-fkcy.top") OrElse Url.Contains("gh-proxy") OrElse
+           Url.Contains("ghproxy") OrElse Url.Contains("ghfast") OrElse Url.Contains("llkk") Then
+            Req.Proxy = Nothing
+        End If
+        Using Resp As Net.HttpWebResponse = DirectCast(Req.GetResponse(), Net.HttpWebResponse)
+            Dim Total As Long = Resp.ContentLength
+            Using Source As IO.Stream = Resp.GetResponseStream()
+                Using Sink As New IO.FileStream(Target, IO.FileMode.Create, IO.FileAccess.Write, IO.FileShare.None)
+                    Dim Buffer(65535) As Byte
+                    Dim Done As Long = 0
+                    Do
+                        Dim Count As Integer = Source.Read(Buffer, 0, Buffer.Length)
+                        If Count <= 0 Then Exit Do
+                        Sink.Write(Buffer, 0, Count)
+                        Done += Count
+                        If Progress IsNot Nothing Then Progress(Done, Total)
+                    Loop
+                End Using
+            End Using
+        End Using
+    End Sub
+
+#End Region
 
 End Module
