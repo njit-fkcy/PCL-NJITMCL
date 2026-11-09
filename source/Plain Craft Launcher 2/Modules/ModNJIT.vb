@@ -606,7 +606,16 @@ Public Module ModNJIT
     ''' 社团站点的整合包接口地址（可用环境变量 PCL_PACK_API 指向测试站）。
     ''' </summary>
     Public ReadOnly PackApiUrl As String =
-        If(Environment.GetEnvironmentVariable("PCL_PACK_API"), ClubHomepage & "/api/launcher/servers")
+        WithPackVersion(If(Environment.GetEnvironmentVariable("PCL_PACK_API"), ClubHomepage & "/api/launcher/servers"))
+
+    ''' <summary>
+    ''' 给接口地址附加缓存版本参数。
+    ''' 旧版启动器会在本地留下 CacheCow 缓存，文件一旦损坏，服务端改 no-store 也删不掉，
+    ''' 因此用参数换一个缓存键，让残留的坏缓存永久失效。
+    ''' </summary>
+    Private Function WithPackVersion(Url As String) As String
+        Return Url & If(Url.Contains("?"), "&", "?") & "pack=2"
+    End Function
 
     ''' <summary>
     ''' 拉取在档服务器与整合包列表。

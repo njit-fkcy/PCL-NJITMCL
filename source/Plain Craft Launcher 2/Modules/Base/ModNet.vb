@@ -215,8 +215,10 @@ Retry:
     '基础请求函数
     Private Function SendRequest(Url As String, Method As HttpMethod,
             Optional Content As Object = Nothing, Optional Headers As Dictionary(Of String, String) = Nothing,
-            Optional SimulateBrowserHeaders As Boolean = False, Optional Timeout As Integer = 25000, Optional Encoding As Encoding = Nothing) As Byte()
+            Optional SimulateBrowserHeaders As Boolean = False, Optional Timeout As Integer = 25000, Optional Encoding As Encoding = Nothing,
+            Optional AllowCacheReset As Boolean = True) As Byte()
         If RunInUi() AndAlso Not Url.Contains("//127.") Then Throw New Exception("在 UI 线程执行了网络请求")
+        Dim OriginalUrl As String = Url
         Dim Request As HttpRequestMessage = Nothing, CancelToken As CancellationTokenSource = Nothing, Response As HttpResponseMessage = Nothing
         Try
             '构建 RequestClient
@@ -285,6 +287,13 @@ Retry:
             If TypeOf ex IsNot TaskCanceledException Then ex.ThrowIfCanceled() 'GetResultWithTimeout 会抛出 TaskCanceledException
             If ex.IsBadNetwork Then
                 Throw New WebException($"网络请求失败，请稍后再试，或使用 VPN 改善网络环境（{Method}, {Url}）", WebExceptionStatus.Timeout)
+            ElseIf AllowCacheReset AndAlso (Method = HttpMethod.Get OrElse Method = HttpMethod.Head) Then
+                'CacheCow 在发请求前先读本地缓存文件，文件损坏（更新中断、磁盘清理等）会直接抛异常，
+                '而它内部重试只覆盖 FileNotFoundException 与 IOException。清空缓存并重建客户端后重试一次即可自愈
+                Logger.Warn(ex, $"网络请求异常，清空本地 HTTP 缓存后重试（{Method}，{Url}）")
+                ResetHttpCache()
+                Return SendRequest(OriginalUrl, Method, Content, Headers, SimulateBrowserHeaders, Timeout, Encoding,
+                                   AllowCacheReset:=False)
             Else
                 Throw New Exception($"网络请求出现意外异常（{Method}, {Url}）", ex)
             End If
@@ -296,6 +305,31 @@ Retry:
     End Function
     Private RequestClient As HttpClient = Nothing
     Private RequestClientLock As New Object
+
+    ''' <summary>
+    ''' 清空本地 HTTP 缓存并重建请求客户端，用于从损坏的 CacheCow 缓存文件中恢复。
+    ''' </summary>
+    Private Sub ResetHttpCache()
+        SyncLock RequestClientLock
+            Try
+                RequestClient?.Dispose()
+            Catch
+                '忽略释放异常
+            End Try
+            RequestClient = Nothing
+            Try
+                For Each CacheFile In Directory.GetFiles(PathTemp & "Cache\Http\")
+                    Try
+                        IO.File.Delete(CacheFile)
+                    Catch
+                        '文件被占用时跳过，下次请求还会再清
+                    End Try
+                Next
+            Catch
+                '缓存目录不存在或不可访问时忽略
+            End Try
+        End SyncLock
+    End Sub
 
 #End Region
 
