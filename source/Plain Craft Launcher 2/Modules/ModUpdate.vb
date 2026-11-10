@@ -298,8 +298,14 @@ Public Module ModUpdate
             For Each Pair As KeyValuePair(Of String, String) In ProgramFiles
                 Dim SourcePath As String = IO.Path.Combine(ExtractFolder, Pair.Key)
                 If Not FileUtils.Exists(SourcePath) Then
-                    Logger.Warn($"完整包中缺少 {Pair.Key}，跳过")
-                    Continue For
+                    '兼容旧包：wg 组件可能平铺在包根目录，回退取一次
+                    Dim FallbackPath As String = IO.Path.Combine(ExtractFolder, IO.Path.GetFileName(Pair.Key))
+                    If FileUtils.Exists(FallbackPath) Then
+                        SourcePath = FallbackPath
+                    Else
+                        Logger.Warn($"完整包中缺少 {Pair.Key}，跳过")
+                        Continue For
+                    End If
                 End If
                 Dim Entry As New JObject()
                 Entry.Add("path", Pair.Value)
@@ -310,7 +316,10 @@ Public Module ModUpdate
             '统一布局：清掉根目录平铺的 wg 组件，组件统一放在 WireGuard 子目录
             Dim BaseFolder As String = IO.Path.GetDirectoryName(PathExe)
             Dim Cleanup As New JArray()
+            Dim PlannedPaths As New HashSet(Of String)(Plan.Select(Function(Entry) Entry("path").ToString()))
             For Each FileName As String In New String() {"wg.exe", "wireguard.exe"}
+                '只有本次确实会写入 WireGuard\ 组件时才清理根目录旧布局，避免删了却不补回
+                If Not PlannedPaths.Contains("WireGuard\" & FileName) Then Continue For
                 If FileUtils.Exists(IO.Path.Combine(BaseFolder, FileName)) Then Cleanup.Add(FileName)
             Next
             Dim PlanFile As String = IO.Path.Combine(TempFolder, "plan.json")
