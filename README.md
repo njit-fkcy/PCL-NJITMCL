@@ -126,7 +126,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 ## 发版流程
 
-十步，缺一步视为未发布：**定版本 → 编译 → 打包 → GitHub → 源码同步 → 内网 → 清单 → 官网 → 验证 → 建档**。
+十一步，缺一步视为未发布：**定版本 → 编译 → 打包 → GitHub → 源码同步 → 内网 → 清单 → 官网 → 根 README → 验证 → 建档**。
 
 1. 改 `Modules\Base\ModBase.vb` 的 `VersionBaseName` 与 `VersionCode`（Release 分支与快照分支同时改，快照 = 正式 + 1）。
 2. 编译必须用 VS2022 BuildTools 的 MSBuild，并先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`（`dotnet msbuild` 会因缺 XAML 代码生成失败）。快照分支用 `Plain Craft Launcher 2.local.vbproj`。若 `nuget.org` 不可达（校园网常见），加 `-p:RestoreSources=https://repo.huaweicloud.com/repository/nuget/v3/index.json`。
@@ -136,8 +136,9 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 6. 上传到校园内网 `/var/www/modpacks/_launcher/v<版本>/`（644）。
 7. 生成并上传 `njitmcl.json`（官网服务器的 update 目录），9 个文件各 4 源（GitHub / 内网 / gh-proxy / ghproxy.net）。
 8. 更新官网两套 `app.js`（主站 + 测试站）的版本号、下载链接与 SHA256。
-9. 验证：五源 `curl -r 0-1023`（GitHub 302、其余可用源 206）、线上清单字段、官网版本号残留为 0、两处运行目录 exe 均已替换、源码 tag 的 raw 文件 200 且内网源码包 206 与远端 sha256 一致。
-10. 建档：官网侧 `档案-04` §三、本机 `档案-01` §二；`档案-05-NJITMCL启动器.md` 目前缺失（索引 APP-01 指向失效），重建前以本 README 与 changelog 手册的流程为准。
+9. **更新本仓库根 README**：`一眼看懂`（最新版本、Release 数量）、`源码`（当前 tag）、`版本一览`（新增一行）、`更新机制`/`下载与安装` 中的源数量。这是仓库首页，漏更新就会出现「README 写 v1.6.1、实际已到 1.8.0」。
+10. 验证：五源 `curl -r 0-1023`（GitHub 302、其余可用源 206）、线上清单字段、官网版本号残留为 0、两处运行目录 exe 均已替换、源码 tag 的 raw 文件 200 且内网源码包 206 与远端 sha256 一致、根 README 无旧版本号残留。
+11. 建档：官网侧 `档案-04` §三、本机 `档案-01` §二；`档案-05-NJITMCL启动器.md` 目前缺失（索引 APP-01 指向失效），重建前以本 README 与 changelog 手册的流程为准。
 
 发布工具：本地 `发布工具\发布工具.py`（GUI，含编译后的一键发布、整合包修订、存档分片上传）。它把启动器发到 `PCL-NJITMCL`、把整合包与存档发到 `PCL-NJITMCL-Modpacks`。
 
