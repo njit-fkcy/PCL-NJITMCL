@@ -21,8 +21,8 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 | 项 | 值 |
 |---|---|
 | 组织 | [njit-fkcy](https://github.com/njit-fkcy) |
-| 最新版本 | **v1.8.0** |
-| Release 数量 | 32（v1.0.3 ～ v1.8.0） |
+| 最新版本 | **v1.8.1** |
+| Release 数量 | 33（v1.0.3 ～ v1.8.1） |
 | 每个 Release 资产 | 10 个（9 个运行文件 + 1 个完整 zip） |
 | 源码 | 本仓库 [`source/`](source/)（每版一个 tag `v<版本>-source`；内网镜像 `_launcher/_source/v<版本>/`） |
 | 更新清单 | https://njitmc.club/update/njitmcl.json |
@@ -32,7 +32,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 ## 源码
 
 启动器源码在本仓库 [`source/`](source/) 目录，与发行版同仓，随版本打 tag `v<版本>-source`
-（当前 `v1.8.0-source`）。
+（当前 `v1.8.1-source`）。
 
 - 技术栈：VB.NET + WPF，.NET Framework 4.8.1，旧式 `.vbproj`
 - 编译：必须用 VS2022 BuildTools 的 MSBuild（先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`），详见 `source/README.md`
@@ -91,6 +91,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 | 版本 | Tag | 主程序 | 资产 | 发布 |
 |---|---|---|---|---|
+| 1.8.1 | `v1.8.1` | 5.8 MB | 10 | 2026-11-10 |
 | 1.8.0 | `v1.8.0` | 5.8 MB | 10 | 2026-11-10 |
 | 1.7.0 | `v1.7.0` | 5.8 MB | 10 | 2026-11-10 |
 | 1.6.2 | `v1.6.2` | 5.8 MB | 10 | 2026-11-09 |
@@ -133,7 +134,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 3. 收集 9 个文件并打 zip，记录 sha256 与大小。
 4. 在本仓库创建 `v<版本>` Release，上传 10 个资产（同 tag 重发要先删同名资产）。
 5. **源码同步**：把定制源码提交到本仓库 [`source/`](source/) 的 `main` 并打 tag `v<版本>-source`；同一份快照打成 `PCL-NJITMCL-Source-<版本>.tar.gz`（`tar --exclude=.git`），与 `SHA256.txt` 上传到内网 `/var/www/modpacks/_launcher/_source/v<版本>/`（644）。快照排除 `.git`、`.github`、`bin`、`obj`、`.vs`、`WireGuard\`、`最新正式版.zip`、`*.local.vbproj`。
-6. 上传到校园内网 `/var/www/modpacks/_launcher/v<版本>/`（644）。
+6. 上传到校园内网 `/var/www/modpacks/_launcher/v<版本>/`（644）。**所有上传到 GitHub 的资产都必须同步内网镜像**——GitHub 只是分发入口之一，内网是校园网主源。
 7. 生成并上传 `njitmcl.json`（官网服务器的 update 目录），9 个文件各 4 源（GitHub / 内网 / gh-proxy / ghproxy.net）。
 8. 更新官网两套 `app.js`（主站 + 测试站）的版本号、下载链接与 SHA256。
 9. **更新本仓库根 README**：`一眼看懂`（最新版本、Release 数量）、`源码`（当前 tag）、`版本一览`（新增一行）、`更新机制`/`下载与安装` 中的源数量。这是仓库首页，漏更新就会出现「README 写 v1.6.1、实际已到 1.8.0」。
@@ -172,6 +173,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 - 不要在已有 Release 上改 tag —— 所有已分发链接都基于 tag 路径，改名会断链。
 - 本仓库只放启动器资产；整合包、存档请放 `PCL-NJITMCL-Modpacks`。
 - 内网目录名必须与 tag 一致（`v<版本>`），文件名不带 `v` —— 客户端清单按此拼接。
+- **所有 GitHub 变更必须同步内网源**：Release 资产、插件包、源码包、文档，发 GitHub 的同时必须落到内网镜像；只发 GitHub 视为未发布。
 
 ---
 
