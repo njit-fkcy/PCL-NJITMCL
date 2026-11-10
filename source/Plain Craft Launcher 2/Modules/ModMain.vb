@@ -383,6 +383,7 @@ EndHint:
     Public FrmDownloadPack As PageDownloadPack
     Public FrmDownloadDataPack As PageDownloadDataPack
     Public FrmDownloadShader As PageDownloadShader
+    Public FrmDownloadPlugin As PageDownloadPlugin
     Public FrmDownloadResourcePack As PageDownloadResourcePack
 
     '设置页面声明

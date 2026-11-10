@@ -233,6 +233,7 @@
     <Compile Include="Modules\ModNJIT.vb" />
     <Compile Include="Modules\ModSiteAuth.vb" />
     <Compile Include="Modules\ModGithubIp.vb" />
+    <Compile Include="Modules\ModPlugin.vb" />
     <Compile Include="Modules\ModPackRevision.vb" />
     <Compile Include="Modules\ModUpdate.vb" />
     <Compile Include="Controls\MyExtraButton.xaml.vb">
@@ -269,6 +270,9 @@
     </Compile>
     <Compile Include="Pages\PageDownload\Resource\PageDownloadDataPack.xaml.vb">
       <DependentUpon>PageDownloadDataPack.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\Resource\PageDownloadPlugin.xaml.vb">
+      <DependentUpon>PageDownloadPlugin.xaml</DependentUpon>
     </Compile>
     <Compile Include="Pages\PageDownload\Resource\PageDownloadPack.xaml.vb">
       <DependentUpon>PageDownloadPack.xaml</DependentUpon>
@@ -517,6 +521,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\PageDownload\Resource\PageDownloadDataPack.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageDownload\Resource\PageDownloadPlugin.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
