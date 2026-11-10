@@ -232,6 +232,7 @@
     <Compile Include="Modules\ModErrorReport.vb" />
     <Compile Include="Modules\ModNJIT.vb" />
     <Compile Include="Modules\ModSiteAuth.vb" />
+    <Compile Include="Modules\ModGithubIp.vb" />
     <Compile Include="Modules\ModPackRevision.vb" />
     <Compile Include="Modules\ModUpdate.vb" />
     <Compile Include="Controls\MyExtraButton.xaml.vb">
@@ -337,6 +338,7 @@
     <Compile Include="Controls\MyDropShadow.vb" />
     <Compile Include="Modules\Base\ModLoader.vb" />
     <Compile Include="Modules\Base\ModNet.vb" />
+    <Compile Include="Modules\Base\ModGithubProxy.vb" />
     <Compile Include="Modules\Base\ModValidate.vb" />
     <Compile Include="Modules\Minecraft\ModDownload.vb" />
     <Compile Include="Modules\Minecraft\ModLaunch.vb" />

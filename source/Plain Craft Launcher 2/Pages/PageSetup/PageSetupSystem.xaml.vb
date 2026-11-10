@@ -130,4 +130,11 @@ Public Class PageSetupSystem
 
 #End Region
 
+    '选择 GitHub 资源下载目录
+    Private Sub BtnNjitDownloadFolder_Click(sender As Object, e As MouseButtonEventArgs) Handles BtnNjitDownloadFolder.Click
+        Dim selected As String = Dialogs.SelectFolder("选择 GitHub 资源下载目录", False).FirstOrDefault
+        If String.IsNullOrWhiteSpace(selected) Then Return
+        TextNjitDownloadFolder.Text = selected
+    End Sub
+
 End Class

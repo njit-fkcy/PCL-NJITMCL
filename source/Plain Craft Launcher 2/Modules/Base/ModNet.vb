@@ -227,7 +227,8 @@ Retry:
                 If RequestClient Is Nothing Then '延迟初始化，以避免在程序启动前加载 CacheCow 导致 DLL 加载失败
                     RequestClient = CacheCow.Client.ClientExtensions.CreateClient(New CacheCow.Client.FileCacheStore.FileStore(PathTemp & "Cache/Http/"), New HttpClientHandler With {
                         .AutomaticDecompression = DecompressionMethods.Deflate Or DecompressionMethods.GZip,
-                        .UseCookies = False '不设为 False 就不能从 Header 手动传入 Cookies
+                        .UseCookies = False, '不设为 False 就不能从 Header 手动传入 Cookies
+                        .Proxy = ModGithubProxy.Proxy '只有 GitHub 域名走本地优选代理，其余直连
                     })
                 End If
             End SyncLock
@@ -336,7 +337,8 @@ Retry:
 #Region "多线程下载引擎"
 
     Private ThreadClient As New HttpClient(New HttpClientHandler With {
-        .AutomaticDecompression = DecompressionMethods.Deflate Or DecompressionMethods.GZip
+        .AutomaticDecompression = DecompressionMethods.Deflate Or DecompressionMethods.GZip,
+        .Proxy = ModGithubProxy.Proxy 'GitHub 域名走本地优选代理
     })
 
     ''' <summary>

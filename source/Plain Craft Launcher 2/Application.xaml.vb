@@ -129,6 +129,7 @@ RetryCacheCheck:
             EnsureCompanionConfig()
             ModSiteAuth.RegisterProtocol()
             ModSiteAuth.HandlePendingProtocol()
+            ModGithubProxy.EnsureStarted()
             Logger.Info($"系统编码：{Encoding.Default.HeaderName} ({Encoding.Default.CodePage}, GBK={IsGBKEncoding})")
             Logger.Info($"管理员权限：{WindowsUtils.HasAdminRole()}")
             '检测异常环境

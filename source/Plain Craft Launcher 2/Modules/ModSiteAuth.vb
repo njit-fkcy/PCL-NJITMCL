@@ -1,5 +1,7 @@
-Imports System.IO.Pipes
+﻿Imports System.IO.Pipes
+Imports System.Net.Http
 Imports System.Text
+Imports System.Text.RegularExpressions
 Imports System.Windows.Controls
 Imports System.Windows.Media.Animation
 
@@ -87,7 +89,12 @@ Public Module ModSiteAuth
     ''' </summary>
     Public Sub HandleProtocol(Message As String)
         Logger.Info("收到 njitmcl 协议调用：" & Message)
-        If Not Message.Trim().Trim(""""c).StartsWith("njitmcl://login", StringComparison.OrdinalIgnoreCase) Then Return
+        Dim Cleaned As String = Message.Trim().Trim(""""c)
+        If Cleaned.StartsWith("njitmcl://download", StringComparison.OrdinalIgnoreCase) Then
+            HandleDownloadProtocol(Cleaned)
+            Return
+        End If
+        If Not Cleaned.StartsWith("njitmcl://login", StringComparison.OrdinalIgnoreCase) Then Return
         RunInNewThread(
         Sub()
             Try
@@ -168,5 +175,143 @@ Public Module ModSiteAuth
             SiteLoginScale = Nothing
         End Sub)
     End Sub
+
+    ' 处理网站发起的 GitHub 资源下载：njitmcl://download?url=...&name=...&sha256=...
+    Private Sub HandleDownloadProtocol(Message As String)
+        RunInNewThread(
+        Sub()
+            Try
+                Dim target As Uri = ParseDownloadTarget(Message)
+                Dim query As Dictionary(Of String, String) = ParseQuery(Message)
+                Dim fileName As String = ""
+                If query.ContainsKey("name") Then fileName = IO.Path.GetFileName(query("name"))
+                If String.IsNullOrWhiteSpace(fileName) Then fileName = IO.Path.GetFileName(target.AbsolutePath)
+                If String.IsNullOrWhiteSpace(fileName) Then fileName = "github-download"
+                fileName = SanitizeFileName(fileName)
+
+                Dim folder As String = GetDownloadFolder()
+                IO.Directory.CreateDirectory(folder)
+                Dim savePath As String = UniquePath(folder, fileName)
+
+                RunInUi(Sub() Hint("开始下载：" & fileName, HintType.Blue))
+                Logger.Info("协议下载开始：" & target.AbsoluteUri & " -> " & savePath)
+
+                ModGithubProxy.EnsureStarted()
+                '复用 PCL 原生下载引擎与全局进度（LoaderTaskbar -> BtnExtraDownload）
+                Dim fileTasks As New List(Of NetFile) From {New NetFile({target.AbsoluteUri}, savePath)}
+                Dim downloader As New LoaderDownload("下载 " & fileName, fileTasks)
+                Dim combo As New LoaderCombo(Of String)("下载 " & fileName, New List(Of LoaderBase) From {downloader})
+                combo.Start()
+                LoaderTaskbarAdd(combo)
+                RunInUi(Sub() FrmMain?.BtnExtraDownload.ShowRefresh())
+                combo.WaitForExit()
+
+                Dim sha As String = ""
+                If query.ContainsKey("sha256") Then sha = query("sha256").Trim().ToLowerInvariant()
+                If sha <> "" Then
+                    Dim actual As String = GetSha256(savePath)
+                    If actual <> sha Then
+                        IO.File.Delete(savePath)
+                        Throw New Exception("SHA256 校验失败，已删除下载文件")
+                    End If
+                End If
+
+                Dim size As Long = New IO.FileInfo(savePath).Length
+                Logger.Info("协议下载完成：" & savePath & "（" & size & " B）")
+                RunInUi(Sub() Hint("下载完成：" & fileName & "（" & Math.Round(size / 1024 / 1024, 1) & " MB）", HintType.Green))
+                Try
+                    Diagnostics.Process.Start("explorer.exe", "/select,""" & savePath & """")
+                Catch
+                    '打不开资源管理器不影响下载结果
+                End Try
+            Catch ex As Exception
+                Logger.Warn(ex, "协议下载失败")
+                RunInUi(Sub() Hint("下载失败：" & ex.Message, HintType.Red))
+            End Try
+        End Sub, "ProtocolDownload")
+    End Sub
+
+    ''' <summary>解析并校验协议中的下载目标，不满足条件直接拒绝。</summary>
+    Private Function ParseDownloadTarget(message As String) As Uri
+        Dim parsed As Uri = Nothing
+        If Not Uri.TryCreate(message, UriKind.Absolute, parsed) Then Throw New Exception("协议参数不是有效链接")
+        If Not parsed.Scheme.Equals("njitmcl", StringComparison.OrdinalIgnoreCase) Then Throw New Exception("协议不支持")
+        If Not parsed.Host.Equals("download", StringComparison.OrdinalIgnoreCase) Then Throw New Exception("未知的协议动作")
+
+        Dim query As Dictionary(Of String, String) = ParseQuery(message)
+        If Not query.ContainsKey("url") Then Throw New Exception("缺少下载地址")
+        Dim raw As String = query("url").Trim()
+        If raw.Length = 0 OrElse raw.Length > 2048 Then Throw New Exception("下载地址长度不合法")
+        If raw.Contains("..") Then Throw New Exception("下载地址包含非法路径")
+
+        Dim target As Uri = Nothing
+        If Not Uri.TryCreate(raw, UriKind.Absolute, target) Then Throw New Exception("下载地址不是有效链接")
+        If target.Scheme <> Uri.UriSchemeHttps Then Throw New Exception("只允许 https 下载地址")
+        If target.Port <> 443 Then Throw New Exception("只允许 443 端口")
+        If Not String.IsNullOrEmpty(target.UserInfo) Then Throw New Exception("下载地址不允许包含账号信息")
+        If Not ModGithubIp.IsGithubHost(target.Host) Then Throw New Exception("只允许 GitHub 域名：" & target.Host)
+        If target.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) AndAlso
+           Not Regex.IsMatch(target.AbsolutePath, "^/[^/]+/[^/]+/releases/download/") Then
+            Throw New Exception("只允许 GitHub Release 下载地址")
+        End If
+        Return target
+    End Function
+
+    Private Function ParseQuery(message As String) As Dictionary(Of String, String)
+        Dim result As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Dim index As Integer = message.IndexOf("?"c)
+        If index < 0 Then Return result
+        For Each pair As String In message.Substring(index + 1).Split("&"c)
+            Dim eq As Integer = pair.IndexOf("="c)
+            If eq <= 0 Then Continue For
+            Dim key As String = Uri.UnescapeDataString(pair.Substring(0, eq))
+            Dim value As String = Uri.UnescapeDataString(pair.Substring(eq + 1))
+            result(key) = value
+        Next
+        Return result
+    End Function
+
+    ''' <summary>默认保存到用户「下载」目录，可在设置里改。</summary>
+    Private Function GetDownloadFolder() As String
+        Dim folder As String = ""
+        Try
+            folder = Settings.Get(Of String)("NjitGithubDownloadFolder")
+        Catch
+            '设置项缺失时用默认目录
+        End Try
+        If String.IsNullOrWhiteSpace(folder) Then
+            folder = IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
+        End If
+        Return folder
+    End Function
+
+    Private Function SanitizeFileName(name As String) As String
+        For Each c As Char In IO.Path.GetInvalidFileNameChars()
+            name = name.Replace(c, "_"c)
+        Next
+        If name.Length > 120 Then name = name.Substring(0, 120)
+        Return name
+    End Function
+
+    Private Function UniquePath(folder As String, fileName As String) As String
+        Dim path As String = IO.Path.Combine(folder, fileName)
+        If Not IO.File.Exists(path) Then Return path
+        Dim baseName As String = IO.Path.GetFileNameWithoutExtension(fileName)
+        Dim ext As String = IO.Path.GetExtension(fileName)
+        Dim i As Integer = 1
+        Do
+            path = IO.Path.Combine(folder, baseName & " (" & i & ")" & ext)
+            i += 1
+        Loop While IO.File.Exists(path)
+        Return path
+    End Function
+
+    Private Function GetSha256(path As String) As String
+        Using sha As System.Security.Cryptography.SHA256 = System.Security.Cryptography.SHA256.Create()
+            Using fs As IO.FileStream = IO.File.OpenRead(path)
+                Return BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant()
+            End Using
+        End Using
+    End Function
 
 End Module

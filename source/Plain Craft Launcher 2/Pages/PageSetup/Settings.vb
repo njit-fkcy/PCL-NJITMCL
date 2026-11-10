@@ -73,6 +73,8 @@ Public Class Settings
         New Setting("CacheAuthServerName", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("CacheAuthServerRegister", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("CacheDownloadFolder", "", Source:=Sources.Registry),
+        New Setting("NjitGithubIpEnabled", True, Source:=Sources.Registry),
+        New Setting("NjitGithubDownloadFolder", "", Source:=Sources.Registry),
         New Setting("CacheJavaListVersion", 0, Source:=Sources.Registry),
         New Setting("LoginRemember", True, Source:=Sources.Registry, Encrypted:=True),
         New Setting("LoginLegacyName", "", Source:=Sources.Registry, Encrypted:=True),
