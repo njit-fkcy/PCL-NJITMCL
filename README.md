@@ -21,10 +21,10 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 | 项 | 值 |
 |---|---|
 | 组织 | [njit-fkcy](https://github.com/njit-fkcy) |
-| 最新版本 | **v1.6.1** |
-| Release 数量 | 29（v1.0.3 ～ v1.6.1） |
+| 最新版本 | **v1.8.0** |
+| Release 数量 | 32（v1.0.3 ～ v1.8.0） |
 | 每个 Release 资产 | 10 个（9 个运行文件 + 1 个完整 zip） |
-| 源码 | [PCL-NJITMCL-Source](https://github.com/njit-fkcy/PCL-NJITMCL-Source)（每版一个 tag；内网镜像 `_launcher/_source/v<版本>/`） |
+| 源码 | 本仓库 [`source/`](source/)（每版一个 tag `v<版本>-source`；内网镜像 `_launcher/_source/v<版本>/`） |
 | 更新清单 | https://njitmc.club/update/njitmcl.json |
 | 官网 | https://njitmc.club |
 | 技术支持 / 问题反馈 | 官网「反馈」入口，或启动器内「意见反馈」 |
@@ -32,7 +32,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 ## 源码
 
 启动器源码在本仓库 [`source/`](source/) 目录，与发行版同仓，随版本打 tag `v<版本>-source`
-（当前 `v1.6.1-source`）。
+（当前 `v1.8.0-source`）。
 
 - 技术栈：VB.NET + WPF，.NET Framework 4.8.1，旧式 `.vbproj`
 - 编译：必须用 VS2022 BuildTools 的 MSBuild（先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`），详见 `source/README.md`
@@ -75,7 +75,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 - **目录名带 `v` 前缀**（`v1.5.6`），与 Release tag 完全一致；**文件名不带**（`PCL-NJITMCL-1.5.6.zip`、`PCL-NJITMCL-Source-1.5.6.tar.gz`）。
 - 目录列表被禁用：直接访问目录 URL 返回 `403`，只能按完整文件名取；文件支持 `Range`，断点续传返回 `206`。
 - `_source/` 从 **v1.5.6** 起才有；v1.0.3 ～ v1.5.5 只有二进制，无源码镜像。
-- 更新清单**不在内网**，由官网 `https://njitmc.club/update/njitmcl.json` 托管（9 个文件各 5 源 + `sha256`）。
+- 更新清单**不在内网**，由官网 `https://njitmc.club/update/njitmcl.json` 托管（1.7.0 起 9 个文件各 4 源 + `sha256`）。
 - 新增版本时 `_launcher/v<版本>/` 与 `_launcher/_source/v<版本>/` 必须**同时建立**，只建二进制目录视为未发布。
 - 内网只做镜像，**不存清单、不存官网页面**；清单与下载页由官网服务器负责。
 
@@ -91,6 +91,9 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 | 版本 | Tag | 主程序 | 资产 | 发布 |
 |---|---|---|---|---|
+| 1.8.0 | `v1.8.0` | 5.8 MB | 10 | 2026-11-10 |
+| 1.7.0 | `v1.7.0` | 5.8 MB | 10 | 2026-11-10 |
+| 1.6.2 | `v1.6.2` | 5.8 MB | 10 | 2026-11-09 |
 | 1.6.1 | `v1.6.1` | 5.8 MB | 10 | 2026-11-09 |
 | 1.6.0 | `v1.6.0` | 5.8 MB | 10 | 2026-11-09 |
 | 1.5.9 | `v1.5.9` | 5.8 MB | 10 | 2026-11-08 |
@@ -129,12 +132,12 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 2. 编译必须用 VS2022 BuildTools 的 MSBuild，并先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`（`dotnet msbuild` 会因缺 XAML 代码生成失败）。快照分支用 `Plain Craft Launcher 2.local.vbproj`。若 `nuget.org` 不可达（校园网常见），加 `-p:RestoreSources=https://repo.huaweicloud.com/repository/nuget/v3/index.json`。
 3. 收集 9 个文件并打 zip，记录 sha256 与大小。
 4. 在本仓库创建 `v<版本>` Release，上传 10 个资产（同 tag 重发要先删同名资产）。
-5. **源码同步**：把定制源码提交到 [PCL-NJITMCL-Source](https://github.com/njit-fkcy/PCL-NJITMCL-Source) 的 `main` 并打 tag `v<版本>`；同一份快照打成 `PCL-NJITMCL-Source-<版本>.tar.gz`（`tar --exclude=.git`），与 `SHA256.txt` 上传到内网 `/var/www/modpacks/_launcher/_source/v<版本>/`（644）。快照排除 `.git`、`.github`、`bin`、`obj`、`.vs`、`WireGuard\`、`最新正式版.zip`、`*.local.vbproj`。
+5. **源码同步**：把定制源码提交到本仓库 [`source/`](source/) 的 `main` 并打 tag `v<版本>-source`；同一份快照打成 `PCL-NJITMCL-Source-<版本>.tar.gz`（`tar --exclude=.git`），与 `SHA256.txt` 上传到内网 `/var/www/modpacks/_launcher/_source/v<版本>/`（644）。快照排除 `.git`、`.github`、`bin`、`obj`、`.vs`、`WireGuard\`、`最新正式版.zip`、`*.local.vbproj`。
 6. 上传到校园内网 `/var/www/modpacks/_launcher/v<版本>/`（644）。
-7. 生成并上传 `njitmcl.json`（官网服务器的 update 目录），9 个文件各 5 源。
+7. 生成并上传 `njitmcl.json`（官网服务器的 update 目录），9 个文件各 4 源（GitHub / 内网 / gh-proxy / ghproxy.net）。
 8. 更新官网两套 `app.js`（主站 + 测试站）的版本号、下载链接与 SHA256。
 9. 验证：五源 `curl -r 0-1023`（GitHub 302、其余可用源 206）、线上清单字段、官网版本号残留为 0、两处运行目录 exe 均已替换、源码 tag 的 raw 文件 200 且内网源码包 206 与远端 sha256 一致。
-10. 建档：社团档案 `档案-05-NJITMCL启动器.md` §六、官网侧 `档案-04` §三、本机 `档案-01` §二。
+10. 建档：官网侧 `档案-04` §三、本机 `档案-01` §二；`档案-05-NJITMCL启动器.md` 目前缺失（索引 APP-01 指向失效），重建前以本 README 与 changelog 手册的流程为准。
 
 发布工具：本地 `发布工具\发布工具.py`（GUI，含编译后的一键发布、整合包修订、存档分片上传）。它把启动器发到 `PCL-NJITMCL`、把整合包与存档发到 `PCL-NJITMCL-Modpacks`。
 
@@ -155,8 +158,8 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 ## 接手须知
 
-- 源码：[PCL-NJITMCL-Source](https://github.com/njit-fkcy/PCL-NJITMCL-Source)（PCL 二次开发版，VB.NET + WPF，.NET Framework 4.8.1；`MeloongCore` 已内联）。本地工作副本为 `PCL-src`。
-- 权威档案（含版本基线、编译命令、发布十步、已知坑、回滚）：`档案-05-NJITMCL启动器.md`。
+- 源码：本仓库 [`source/`](source/)（PCL 二次开发版，VB.NET + WPF，.NET Framework 4.8.1；`MeloongCore` 已内联）。本地工作副本为 `PCL-src-162`。
+- 权威档案：`档案-05-NJITMCL启动器.md` 目前缺失，发版流程以本 README「发版流程」与 changelog 仓库手册为准；版本基线与回滚见本机 `档案-01`、官网 `档案-04`。
 - 发布凭据放在本地 `发布工具\config.json`（GitHub Token、内网服务器账号），**不写进本仓库**。
 - 发布机器需装：VS2022 BuildTools（MSBuild）、.NET SDK 8、Python 3（`paramiko`）。
 - 组织成员才有推送权限；发版前先在组织内确认版本号未被他人占用。
@@ -171,4 +174,4 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 ---
 
-_版本表由 GitHub API 生成于 2026-10-29，以 Releases 列表为准。_
+_版本表由 GitHub API 生成于 2026-11-10，以 Releases 列表为准。_
