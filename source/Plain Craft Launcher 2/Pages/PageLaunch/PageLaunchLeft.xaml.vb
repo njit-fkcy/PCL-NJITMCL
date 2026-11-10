@@ -312,7 +312,8 @@ UnknownType:
                     'MUA 登录：固定进入 MUA 皮肤站登录页，不回落到第三方登录页
                     ApplyMuaAuthSettings()
                     Settings.Set("LoginType", McLoginType.Auth)
-                    Type = PageType.AuthSkin
+                    '未登录或已退出时显示输入页；只有拿到 token 才显示头像页，避免默认头像被误认为已登录
+                    Type = If(Settings.Get(Of String)("CacheAuthAccess") = "", PageType.Auth, PageType.AuthSkin)
                 ElseIf RadioLoginType5.Checked Then
                     If Settings.Get(Of String)("CacheMsV2Access") = "" Then
                         Type = PageType.Ms

@@ -10,6 +10,7 @@ Public Module ModNJIT
 
     ''' <summary>
     ''' MUA 第三方认证服务器地址（Yggdrasil API Root）。
+    ''' 登录页会自行拼 /authserver，因此这里不能带 authserver 后缀。
     ''' </summary>
     Public Const MuaAuthServer As String = "https://skin.mualliance.ltd/api/yggdrasil"
     ''' <summary>
@@ -114,10 +115,11 @@ Public Module ModNJIT
     End Function
 
     ''' <summary>
-    ''' 是否允许使用社团资源下载：MUA 已登录，或当前选择正版登录。
+    ''' 是否允许使用社团资源下载：MUA 已登录，或正版已登录（有 AccessToken），二者有其一即可。
     ''' </summary>
     Public Function IsAccountAllowed() As Boolean
         If IsMuaLoggedIn() Then Return True
+        If Not String.IsNullOrWhiteSpace(Settings.Get(Of String)("CacheMsV2Access")) Then Return True
         Return Settings.Get(Of McLoginType)("LoginType") = McLoginType.Ms
     End Function
 
@@ -573,7 +575,8 @@ Public Module ModNJIT
                 Return "尚未使用 MUA 登录"
             End If
             SaveWgConfig(FetchWgConfig(Email, Password))
-        ElseIf Settings.Get(Of McLoginType)("LoginType") = McLoginType.Ms Then
+        ElseIf Not String.IsNullOrWhiteSpace(Settings.Get(Of String)("CacheMsV2Access")) Then
+            '正版已登录（有 token）就走正版通道，不依赖当前页签的 LoginType
             Dim MsName As String = Settings.Get(Of String)("CacheMsV2Name")
             If String.IsNullOrWhiteSpace(MsName) Then Return "尚未登录正版账号"
             SaveWgConfig(FetchWgConfigMs(MsName))
