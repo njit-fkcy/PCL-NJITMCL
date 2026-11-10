@@ -14,6 +14,8 @@ Public Class NjitPlugin
     Public Author As String = ""
     Public Homepage As String = ""
     Public DownloadUrl As String = ""
+    ''' <summary>多源下载地址，按中控给的顺序尝试（校园内网优先）。</summary>
+    Public DownloadUrls As New List(Of String)
     Public FileName As String = ""
     Public Size As Long = 0
 End Class
@@ -72,6 +74,16 @@ Public Module ModPlugin
             If Not DownloadPattern.IsMatch(Item.DownloadUrl) Then Continue For
             If Item.Size <= 0 OrElse Item.Size > 200L * 1024 * 1024 Then Continue For
             If Not MeetsMinimum(Item.MinLauncherVersion) Then Continue For
+            ' 多源：中控给了 downloadUrls 就用它，否则回退到单一 GitHub 直链
+            Dim urls = TryCast(Obj("downloadUrls"), JArray)
+            If urls IsNot Nothing Then
+                For Each urlToken As JToken In urls
+                    Dim url = If(urlToken?.ToString(), "").Trim()
+                    If url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) AndAlso
+                       Not Item.DownloadUrls.Contains(url) Then Item.DownloadUrls.Add(url)
+                Next
+            End If
+            If Item.DownloadUrls.Count = 0 Then Item.DownloadUrls.Add(Item.DownloadUrl)
             Result.Add(Item)
         Next
         Return Result
@@ -138,7 +150,7 @@ Public Module ModPlugin
         DirectoryUtils.Create(PathTemp & "PluginInstall\")
         Dim ZipFile As String = PathTemp & "PluginInstall\" & Plugin.Id & ".zip"
         Dim TempRoot As String = PathTemp & "PluginInstall\" & Plugin.Id & "\"
-        Dim Tasks As New List(Of NetFile) From {New NetFile({Plugin.DownloadUrl}, ZipFile)}
+        Dim Tasks As New List(Of NetFile) From {New NetFile(Plugin.DownloadUrls, ZipFile)}
         Dim Downloader As New LoaderDownload("下载插件 " & Plugin.Name, Tasks)
         Dim Installer As New LoaderTask(Of Integer, Integer)("安装插件 " & Plugin.Name,
             Sub(Task) InstallCore(Plugin, ZipFile, TempRoot, Task))
