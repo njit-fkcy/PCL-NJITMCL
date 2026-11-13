@@ -946,6 +946,8 @@ Public Class ClubLifePanel
         Dim Profile As JObject = TryCast(Data("profile"), JObject)
         Dim Reputation As JObject = TryCast(Data("reputation"), JObject)
         Dim ActivityData As JObject = TryCast(Data("activity"), JObject)
+        'favorite 可能为 null（JValue），直接取子项会抛 InvalidOperationException
+        Dim Favorite As JObject = TryCast(ActivityData?("favorite"), JObject)
         Dim Players As JArray = TryCast(Data("players"), JArray)
         Dim MyEvents As JArray = TryCast(Data("myEvents"), JArray)
 
@@ -988,7 +990,7 @@ Public Class ClubLifePanel
         Dim PlayPanel As New StackPanel
         PlayPanel.Children.Add(SocialSectionTitle("游玩记录"))
         PlayPanel.Children.Add(BuildMeta("累计游玩 " & FormatDuration(If(ActivityData?("seconds")?.ToObject(Of Long)(), 0L)) &
-                                         " · 最常游玩 " & If(ActivityData?("favorite")?("name")?.ToString(), "—") &
+                                         " · 最常游玩 " & If(Favorite?("name")?.ToString(), "—") &
                                          " · 最近上线 " & FormatStamp(ActivityData?("lastSeen"))))
         Dim Servers As JArray = TryCast(ActivityData?("servers"), JArray)
         If Servers IsNot Nothing AndAlso Servers.Count > 0 Then
