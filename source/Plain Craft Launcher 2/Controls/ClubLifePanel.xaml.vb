@@ -956,7 +956,7 @@ Public Class ClubLifePanel
         AccountCard.Margin = New Thickness(0, 8, 0, 0)
         Dim AccountPanel As New StackPanel With {.Orientation = Orientation.Horizontal}
         Dim AccountId As String = If(Data("accountId")?.ToString(), "")
-        Dim Avatar As FrameworkElement = SocialAvatar(If(AccountId <> "", "/api/launcher/avatar/" & AccountId, ""), 56,
+        Dim Avatar As FrameworkElement = SocialAvatar(ModSocial.AvatarUrlOf(AccountId), 56,
                                                      If(Data("displayName")?.ToString(), ""))
         Avatar.Margin = New Thickness(0, 0, 14, 0)
         AccountPanel.Children.Add(Avatar)

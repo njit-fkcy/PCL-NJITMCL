@@ -256,6 +256,15 @@ Public Module ModSocial
     End Function
 
     ''' <summary>
+    ''' 按账号 ID 取中控头像地址。所有"给我这个账号的头像"都必须走这里，
+    ''' 不要在调用点自己拼 /api/launcher/avatar/。
+    ''' </summary>
+    Public Function AvatarUrlOf(AccountId As String) As String
+        If String.IsNullOrWhiteSpace(AccountId) Then Return ""
+        Return AvatarUrl("/api/launcher/avatar/" & AccountId)
+    End Function
+
+    ''' <summary>
     ''' 只认 JObject 类型的子节点；值为 null、字符串、数组或父节点不是对象时一律返回 Nothing。
     ''' 不要用 <c>Obj?("a")?("b")</c>：JSON null 在 Newtonsoft 里是 JValue(Type=Null) 而不是 Nothing，
     ''' VB 的 <c>?()</c> 只判 Nothing，会一路取到 JValue 上抛「Cannot access child value on JValue」。

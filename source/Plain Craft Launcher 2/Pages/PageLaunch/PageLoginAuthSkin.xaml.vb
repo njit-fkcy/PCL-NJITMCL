@@ -76,8 +76,22 @@ Public Class PageLoginAuthSkin
         Settings.Set("CacheAuthName", "")
         '同步清除 MUA 登录标记，否则联机/整合包仍会被当成已登录放行
         Settings.Set("MuaLoggedIn", False)
+        '联机会话也要跟着退：中控设备令牌不清，社团生活会一直停在已登录状态
+        Try
+            ModSocial.Logout()
+        Catch ex As Exception
+            Logger.Warn(ex, "退出联机会话失败")
+        End Try
         McLoginAuthLoader.Input = Nothing '防止因为输入的用户名密码相同，直接使用了上次登录的加载器结果
         FrmLaunchLeft.RefreshPage(False, True)
+        '社团生活面板要立刻回到未登录态
+        Try
+            If FrmMain IsNot Nothing AndAlso TypeOf FrmMain.PageRight Is IRefreshable Then
+                RunInUi(Sub() CType(FrmMain.PageRight, IRefreshable).Refresh())
+            End If
+        Catch ex As Exception
+            Logger.Warn(ex, "刷新主页失败")
+        End Try
     End Sub
 
     Private Sub Skin_Click(sender As Object, e As MouseButtonEventArgs) Handles Skin.Click

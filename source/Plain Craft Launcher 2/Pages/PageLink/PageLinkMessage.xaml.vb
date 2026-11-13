@@ -252,7 +252,7 @@ Public Class PageLinkMessage
         CurrentPeerName = If(String.IsNullOrWhiteSpace(PeerName), "好友", PeerName)
         LastMessageId = 0
         LabChatName.Text = CurrentPeerName
-        PanChatAvatar.Content = SocialAvatar("/api/launcher/avatar/" & PeerId, 26, CurrentPeerName)
+        PanChatAvatar.Content = SocialAvatar(ModSocial.AvatarUrlOf(PeerId), 26, CurrentPeerName)
         PanChat.Visibility = Visibility.Visible
         PanChatList.Children.Clear()
         PanChatList.Children.Add(SocialLabel("正在加载聊天记录……"))
