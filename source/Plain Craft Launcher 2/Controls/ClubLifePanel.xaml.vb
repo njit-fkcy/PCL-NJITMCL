@@ -946,8 +946,8 @@ Public Class ClubLifePanel
         Dim Profile As JObject = TryCast(Data("profile"), JObject)
         Dim Reputation As JObject = TryCast(Data("reputation"), JObject)
         Dim ActivityData As JObject = TryCast(Data("activity"), JObject)
-        'favorite 可能为 null（JValue），直接取子项会抛 InvalidOperationException
-        Dim Favorite As JObject = TryCast(ActivityData?("favorite"), JObject)
+        'favorite 可能为 JSON null（JValue），用 JChild 只认对象
+        Dim Favorite As JObject = ModSocial.JChild(ActivityData, "favorite")
         Dim Players As JArray = TryCast(Data("players"), JArray)
         Dim MyEvents As JArray = TryCast(Data("myEvents"), JArray)
 

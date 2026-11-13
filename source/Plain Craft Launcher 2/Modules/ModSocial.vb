@@ -237,12 +237,33 @@ Public Module ModSocial
     End Sub
 
     ''' <summary>
-    ''' 把中控返回的头像相对路径拼成完整地址。
+    ''' 头像渲染版本号。服务端改了头像的取图或渲染逻辑时把它 +1：
+    ''' 客户端 MyImage 按 URL 哈希把图片缓存 7 天，URL 不变就永远拿不到新图。
+    ''' 改这里等于让全量用户的头像缓存一起失效。
+    ''' </summary>
+    Public Const AvatarRev As String = "5"
+
+    ''' <summary>
+    ''' 把中控返回的头像相对路径拼成完整地址，并统一带上渲染版本号。
+    ''' 所有头像都必须从这里出发，不要自己拼 /api/launcher/avatar/。
     ''' </summary>
     Public Function AvatarUrl(RelativePath As String) As String
         If String.IsNullOrWhiteSpace(RelativePath) Then Return ""
-        If RelativePath.StartsWith("http", StringComparison.OrdinalIgnoreCase) Then Return RelativePath
-        Return ModNJIT.ClubHomepage & RelativePath
+        Dim Url As String = RelativePath
+        If Not Url.StartsWith("http", StringComparison.OrdinalIgnoreCase) Then Url = ModNJIT.ClubHomepage & Url
+        If Url.Contains("v=") Then Return Url
+        Return Url & If(Url.Contains("?"), "&", "?") & "v=" & AvatarRev
+    End Function
+
+    ''' <summary>
+    ''' 只认 JObject 类型的子节点；值为 null、字符串、数组或父节点不是对象时一律返回 Nothing。
+    ''' 不要用 <c>Obj?("a")?("b")</c>：JSON null 在 Newtonsoft 里是 JValue(Type=Null) 而不是 Nothing，
+    ''' VB 的 <c>?()</c> 只判 Nothing，会一路取到 JValue 上抛「Cannot access child value on JValue」。
+    ''' </summary>
+    Public Function JChild(Obj As JToken, Key As String) As JObject
+        Dim Parent As JObject = TryCast(Obj, JObject)
+        If Parent Is Nothing Then Return Nothing
+        Return TryCast(Parent(Key), JObject)
     End Function
 
     ''' <summary>

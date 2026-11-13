@@ -173,16 +173,23 @@ Public Module ModJava
         End If
 
         '原版 26+：获取 Mojang 要求的 Java 版本
+        'javaVersion 可能是 null，用 JChild 取对象，避免在 JValue 上继续取子项
+        Dim JavaSpec As JObject = ModSocial.JChild(Instance.JsonObject, "javaVersion")
         Dim RecommendedComponent As String = Nothing
-        Dim RecommendedCode As Integer =
-            If(Instance.JsonObject?("javaVersion")?("majorVersion")?.ToObject(Of Integer),
-            If(Instance.JsonVersion?("java_version")?.ToObject(Of Integer), 0))
+        Dim RecommendedCode As Integer
+        If JavaSpec IsNot Nothing AndAlso JavaSpec("majorVersion") IsNot Nothing Then
+            RecommendedCode = JavaSpec("majorVersion").ToObject(Of Integer)()
+        Else
+            RecommendedCode = If(Instance.JsonVersion?("java_version")?.ToObject(Of Integer), 0)
+        End If
         If RecommendedCode >= 22 Then
             Logger.Info("Mojang 要求至少使用 Java " & RecommendedCode)
             AddConstraint(ValueRange(Of Version).AtLeast(New Version(RecommendedCode, 0)))
-            RecommendedComponent =
-                If(Instance.JsonObject?("javaVersion")?("component")?.ToString,
-                   Instance.JsonVersion?("java_component")?.ToString)
+            If JavaSpec IsNot Nothing AndAlso JavaSpec("component") IsNot Nothing Then
+                RecommendedComponent = JavaSpec("component").ToString()
+            Else
+                RecommendedComponent = Instance.JsonVersion?("java_component")?.ToString()
+            End If
             If RecommendedComponent = "" Then RecommendedComponent = Nothing
         End If
 
