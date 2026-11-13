@@ -36,14 +36,18 @@ Public Class Application
                 Environment.SetEnvironmentVariable("windir", Environment.GetEnvironmentVariable("SystemRoot"), EnvironmentVariableTarget.User)
                 Dim _unused As New FormattedText("", Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Fonts.SystemTypefaces.First, 96, New MyColor, DPI)
             End Try
-            '统一便携组件布局：组件只保留在 WireGuard 子目录
-            NormalizeWgLayout()
             '检查参数调用
             If e.Args.Length > 0 Then
                 If e.Args(0) = "--update" Then
-                    '自动更新
-                    UpdateReplace(e.Args(1), e.Args(2).Trim(""""), e.Args(3).Trim(""""), e.Args(4))
-                    Environment.Exit(ProcessReturnValues.TaskDone)
+                    '自动更新：参数不足时直接退出，避免数组越界
+                    If e.Args.Length >= 5 Then
+                        Dim UpdatePid As Integer = 0
+                        Integer.TryParse(e.Args(1), UpdatePid)
+                        UpdateReplace(UpdatePid, e.Args(2).Trim(""""), e.Args(3).Trim(""""), e.Args(4).Trim(""""))
+                        Environment.Exit(ProcessReturnValues.TaskDone)
+                    Else
+                        Environment.Exit(ProcessReturnValues.Fail)
+                    End If
                 ElseIf e.Args(0) = "--gpu" Then
                     '调整显卡设置
                     Try

@@ -1,0 +1,26 @@
+<UserControl
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:PCL"
+    x:Class="ClubLifePanel">
+    <StackPanel x:Name="PanRoot">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="LabState" Text="正在读取社团生活……" FontSize="12" TextWrapping="Wrap"
+                       VerticalAlignment="Center" Foreground="{DynamicResource ColorBrushGray3}" />
+            <local:MyTextButton x:Name="BtnReload" Grid.Column="1" Content="刷新" FontSize="12"
+                                Margin="10,0,0,0" Padding="0" VerticalAlignment="Center"
+                                HorizontalContentAlignment="Right" ToolTip="重新读取活动、投票与个人记录" />
+        </Grid>
+        <UniformGrid Columns="3" Margin="0,12,0,0">
+            <local:MyButton x:Name="BtnTabMe" Text="个人中心" Height="32" Margin="0,0,5,0"
+                            ColorType="Highlight" />
+            <local:MyButton x:Name="BtnTabEvents" Text="活动报名" Height="32" Margin="2,0" />
+            <local:MyButton x:Name="BtnTabPolls" Text="社团投票" Height="32" Margin="5,0,0,0" />
+        </UniformGrid>
+        <StackPanel x:Name="PanBody" Margin="0,14,0,0" />
+    </StackPanel>
+</UserControl>

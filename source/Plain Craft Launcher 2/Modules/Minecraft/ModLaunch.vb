@@ -630,7 +630,7 @@ SkipLogin:
                     GoTo LoginFinish
                 Catch ex As Exception
                     Logger.Warn(ex, "验证登录失败")
-                    If ex.IsBadNetwork Then Throw New Exception("$登录失败：网络连接异常，无法连接到认证服务器。" & vbCrLf & "请检查网络后重试，校内网络可尝试连接校内组网。")
+                    If ex.IsBadNetwork Then Throw New Exception("$登录失败：网络连接异常，无法连接到认证服务器。" & vbCrLf & "请检查网络后重试。")
                 End Try
             End If
             Data.Progress = 0.25
@@ -828,9 +828,9 @@ LoginFinish:
             Settings.Set("Cache" & Data.Input.Token & "Name", Data.Output.Name)
             Settings.Set("Cache" & Data.Input.Token & "Username", Data.Input.UserName)
             Settings.Set("Cache" & Data.Input.Token & "Pass", Data.Input.Password)
-            'MUA 登录成功后记录状态，供校内组网自动连接使用
+            'MUA 登录成功后记录状态
             If Data.Input.Type = McLoginType.Auth AndAlso Data.Input.BaseUrl.StartsWithF(MuaAuthServer) Then
-                OnMuaLoginSuccess(Data.Input.UserName, Data.Input.Password)
+                OnMuaLoginSuccess(Data.Input.UserName)
             End If
             McLaunchLog("登录成功（Login, " & Data.Input.Token & "）")
             Return NeedRefresh
@@ -876,7 +876,7 @@ LoginFinish:
                 End Select
             ElseIf ex.IsBadNetwork() Then
                 If Data.Input.Type = McLoginType.Auth Then
-                    Throw New Exception("$登录失败：网络连接异常，无法连接到认证服务器。" & vbCrLf & "请检查网络后重试，校内网络可尝试连接校内组网。")
+                    Throw New Exception("$登录失败：网络连接异常，无法连接到认证服务器。" & vbCrLf & "请检查网络后重试。")
                 End If
                 Throw New Exception("$登录失败：你的网络环境不佳，导致难以连接到海外服务器。" & vbCrLf & "请稍后再试，或使用加速器、VPN 改善网络环境。")
             ElseIf ex.Message.StartsWithF("$") Then
@@ -1489,8 +1489,12 @@ NextInstance:
         '全屏
         If Settings.Get(Of Integer)("LaunchArgumentWindowType") = 0 Then Args.Add("--fullscreen")
 
-        '自动进入服务器
-        Dim Server As String = If(String.IsNullOrEmpty(CurrentLaunchOptions.ServerIp), Settings.Get(Of String)("VersionServerEnter", McInstanceSelected), CurrentLaunchOptions.ServerIp)
+        '自动进入服务器：显式指定的地址 > 联机模式下的访客地址 > 启动页设置
+        Dim SocialServer As String = If(ModSocial.SocialModeEnabled, ModSocial.JoinerServer, "")
+        Dim Server As String = If(Not String.IsNullOrEmpty(CurrentLaunchOptions.ServerIp),
+                                   CurrentLaunchOptions.ServerIp,
+                                   If(Not String.IsNullOrEmpty(SocialServer), SocialServer,
+                                      Settings.Get(Of String)("VersionServerEnter", McInstanceSelected)))
         If Server.Any Then
             If McInstanceSelected.ReleaseTime > New Date(2023, 4, 4) Then
                 'QuickPlay

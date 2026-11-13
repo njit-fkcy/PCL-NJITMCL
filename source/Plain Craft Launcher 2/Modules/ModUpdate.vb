@@ -291,9 +291,7 @@ Public Module ModUpdate
                 New KeyValuePair(Of String, String)("PCLCS.dll", "PCLCS.dll"),
                 New KeyValuePair(Of String, String)("MeloongCore.dll", "MeloongCore.dll"),
                 New KeyValuePair(Of String, String)("MeloongCore.Wpf.dll", "MeloongCore.Wpf.dll"),
-                New KeyValuePair(Of String, String)("Microsoft.Win32.Registry.dll", "Microsoft.Win32.Registry.dll"),
-                New KeyValuePair(Of String, String)("WireGuard\wg.exe", "WireGuard\wg.exe"),
-                New KeyValuePair(Of String, String)("WireGuard\wireguard.exe", "WireGuard\wireguard.exe")}
+                New KeyValuePair(Of String, String)("Microsoft.Win32.Registry.dll", "Microsoft.Win32.Registry.dll")}
             Dim Plan As New JArray()
             For Each Pair As KeyValuePair(Of String, String) In ProgramFiles
                 Dim SourcePath As String = IO.Path.Combine(ExtractFolder, Pair.Key)
@@ -313,21 +311,11 @@ Public Module ModUpdate
                 Plan.Add(Entry)
             Next
             If Plan.Count = 0 Then Throw New Exception("完整包中没有可用的启动器文件")
-            '统一布局：清掉根目录平铺的 wg 组件，组件统一放在 WireGuard 子目录
-            Dim BaseFolder As String = IO.Path.GetDirectoryName(PathExe)
-            Dim Cleanup As New JArray()
-            Dim PlannedPaths As New HashSet(Of String)(Plan.Select(Function(Entry) Entry("path").ToString()))
-            For Each FileName As String In New String() {"wg.exe", "wireguard.exe"}
-                '只有本次确实会写入 WireGuard\ 组件时才清理根目录旧布局，避免删了却不补回
-                If Not PlannedPaths.Contains("WireGuard\" & FileName) Then Continue For
-                If FileUtils.Exists(IO.Path.Combine(BaseFolder, FileName)) Then Cleanup.Add(FileName)
-            Next
             Dim PlanFile As String = IO.Path.Combine(TempFolder, "plan.json")
             Dim PlanJson As New JObject()
             PlanJson.Add("files", Plan)
-            If Cleanup.Count > 0 Then PlanJson.Add("delete", Cleanup)
             IO.File.WriteAllText(PlanFile, PlanJson.ToString(), Text.Encoding.UTF8)
-            Logger.Info($"整包更新已准备：{Plan.Count} 个文件，清理 {Cleanup.Count} 个旧布局文件")
+            Logger.Info($"整包更新已准备：{Plan.Count} 个文件")
             RunInUi(
             Sub()
                 If MyMsgBox("更新已下载完成，启动器将重启并完成替换。", "准备更新", "立即重启", "取消") = 1 Then
@@ -360,16 +348,18 @@ Public Module ModUpdate
             UpdateReplaceByPlan(ProcessId, OldFileName, NewFileName, TriggerRestart)
             Return
         End If
+        Dim Backup As String = OldFileName & ".old"
         Try
             Logger.Info($"开始替换更新文件：旧 {OldFileName}，新 {NewFileName}")
             Try
                 Dim OldProcess As Process = Process.GetProcessById(ProcessId)
-                OldProcess.WaitForExit(20000)
+                If Not OldProcess.WaitForExit(20000) Then
+                    Logger.Warn("等待旧进程退出超时（20 秒），继续尝试替换")
+                End If
             Catch
                 ' 旧进程已退出
             End Try
             Thread.Sleep(300)
-            Dim Backup As String = OldFileName & ".old"
             Try
                 If FileUtils.Exists(Backup) Then FileUtils.Delete(Backup)
                 If FileUtils.Exists(OldFileName) Then File.Move(OldFileName, Backup)
@@ -381,17 +371,31 @@ Public Module ModUpdate
             If TriggerRestart Then StartProcess(OldFileName, "--wait")
         Catch ex As Exception
             Logger.Error(ex, "更新替换失败", LogBehavior.Alert)
+            '覆盖失败时把备份还原，避免 exe 缺位导致启动器损坏
+            Try
+                If FileUtils.Exists(Backup) AndAlso Not FileUtils.Exists(OldFileName) Then
+                    File.Move(Backup, OldFileName)
+                    Logger.Info("已从备份还原旧版本文件")
+                End If
+            Catch restoreEx As Exception
+                Logger.Warn(restoreEx, "还原旧版本文件失败")
+            End Try
         End Try
     End Sub
 
     ''' <summary>
     ''' 按替换清单逐个覆盖文件（跨多版本增量更新）。
+    ''' 失败时逆序还原已替换的文件，避免半更新状态。
     ''' </summary>
     Private Sub UpdateReplaceByPlan(ProcessId As Integer, OldFileName As String, PlanFile As String, TriggerRestart As Boolean)
+        Dim Replaced As New List(Of Tuple(Of String, String)) '（目标路径，备份路径）
         Try
             Logger.Info($"开始按清单替换更新文件：{PlanFile}")
             Try
-                Process.GetProcessById(ProcessId).WaitForExit(20000)
+                Dim OldProcess As Process = Process.GetProcessById(ProcessId)
+                If Not OldProcess.WaitForExit(20000) Then
+                    Logger.Warn("等待旧进程退出超时（20 秒），继续尝试替换")
+                End If
             Catch
                 ' 旧进程已退出
             End Try
@@ -425,28 +429,60 @@ Public Module ModUpdate
                 End If
                 Directory.CreateDirectory(IO.Path.GetDirectoryName(Dest))
                 Dim Backup As String = Dest & ".old"
+                Dim Moved As Boolean = False
                 Try
                     If FileUtils.Exists(Backup) Then FileUtils.Delete(Backup)
-                    If FileUtils.Exists(Dest) Then File.Move(Dest, Backup)
+                    If FileUtils.Exists(Dest) Then
+                        File.Move(Dest, Backup)
+                        Moved = True
+                    End If
                 Catch ex As Exception
                     Logger.Warn(ex, $"备份 {RelativePath} 失败，将直接覆盖")
                 End Try
-                For Retry As Integer = 1 To 3
+                Try
+                    For Retry As Integer = 1 To 3
+                        Try
+                            IO.File.Copy(Source, Dest, True)
+                            Count += 1
+                            Exit For
+                        Catch ex As Exception
+                            If Retry = 3 Then Throw
+                            Thread.Sleep(400)
+                        End Try
+                    Next
+                    If Moved Then Replaced.Add(Tuple.Create(Dest, Backup))
+                    Logger.Info($"已替换：{RelativePath}")
+                Catch ex As Exception
+                    '当前文件替换失败：先把备份还原，避免该文件缺位
                     Try
-                        IO.File.Copy(Source, Dest, True)
-                        Count += 1
-                        Exit For
-                    Catch ex As Exception
-                        If Retry = 3 Then Throw
-                        Thread.Sleep(400)
+                        If Moved AndAlso FileUtils.Exists(Backup) Then
+                            If FileUtils.Exists(Dest) Then FileUtils.Delete(Dest)
+                            File.Move(Backup, Dest)
+                        End If
+                    Catch restoreEx As Exception
+                        Logger.Warn(restoreEx, $"还原 {RelativePath} 失败")
                     End Try
-                Next
-                Logger.Info($"已替换：{RelativePath}")
+                    Throw
+                End Try
             Next
             Logger.Info($"更新文件替换完成，共 {Count} 个")
             If TriggerRestart Then StartProcess(OldFileName, "--wait")
         Catch ex As Exception
             Logger.Error(ex, "更新替换失败", LogBehavior.Alert)
+            '失败时逆序还原已替换的文件，避免半更新状态
+            For Index As Integer = Replaced.Count - 1 To 0 Step -1
+                Dim Dest As String = Replaced(Index).Item1
+                Dim Backup As String = Replaced(Index).Item2
+                Try
+                    If FileUtils.Exists(Backup) Then
+                        If FileUtils.Exists(Dest) Then FileUtils.Delete(Dest)
+                        File.Move(Backup, Dest)
+                        Logger.Info($"已还原：{Dest}")
+                    End If
+                Catch restoreEx As Exception
+                    Logger.Warn(restoreEx, $"还原 {Dest} 失败")
+                End Try
+            Next
         End Try
     End Sub
 

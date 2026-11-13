@@ -112,7 +112,7 @@ Public Class PageLinkMain
         NetworkName = $"P{ServerPort.ConvertRadix(16).PadLeft(4, "0"c)}-{GenerateRandomCode()}"
         NetworkSecret = GenerateRandomCode()
         DiscoverNodeID = -1
-        Logger.Info($"尝试创建房间，网络名 {NetworkName}，网络密码 {NetworkSecret}，端口 {ServerPort}")
+        Logger.Info($"尝试创建房间，网络名 {NetworkName}，网络密码 {MaskSecret(NetworkSecret)}，端口 {ServerPort}")
         '启动
         ChangeState(LinkStates.Loading)
     End Sub
@@ -149,7 +149,7 @@ Public Class PageLinkMain
         Else
             DiscoverNodeID = Code.Substring(20, 3).Upper.ConvertRadix(16, 10)
         End If
-        Logger.Info($"尝试加入房间，网络名 {NetworkName}，网络密码 {NetworkSecret}，端口 {ServerPort}，发现节点 {DiscoverNodeID}")
+        Logger.Info($"尝试加入房间，网络名 {NetworkName}，网络密码 {MaskSecret(NetworkSecret)}，端口 {ServerPort}，发现节点 {DiscoverNodeID}")
         '启动
         LastCode = Code
         ChangeState(LinkStates.Loading)
@@ -904,6 +904,12 @@ ForcedPass:
     ''' 自己的 NAT 类型。
     ''' </summary>
     Private NATType As NATTypes = NATTypes.Pending
+
+    ''' <summary>日志脱敏：网络密码只保留前 2 位，避免密钥明文落盘。</summary>
+    Private Shared Function MaskSecret(Secret As String) As String
+        If String.IsNullOrEmpty(Secret) Then Return ""
+        Return Secret.Substring(0, Math.Min(2, Secret.Length)) & "****"
+    End Function
 
     ''' <summary>
     ''' 调用 EasyTier CLI 获取已连接节点信息。

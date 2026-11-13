@@ -177,15 +177,24 @@ Public Module ModPackRevision
                     If Packs Is Nothing OrElse Packs.Count = 0 Then Continue For
                     Dim ServerId As String = If(ServerObj("id")?.ToString(), "")
                     Dim ServerName As String = If(ServerObj("name")?.ToString(), "")
-                    Dim Pack As JObject = TryCast(Packs(0), JObject)
-                    Dim PackId As String = If(Pack("id")?.ToString(), "")
-                    Dim RemoteJava As Integer = If(Pack("javaVersion")?.ToObject(Of Integer)(), 0)
-                    Dim LocalRevision As Integer = 0
+
                     If Mark IsNot Nothing Then
-                        If If(Mark("packId")?.ToString(), "") <> PackId Then Continue For
-                        Dim LocalServer As String = If(Mark("serverId")?.ToString(), "")
-                        If LocalServer <> "" AndAlso LocalServer <> ServerId Then Continue For
-                        LocalRevision = If(Mark("revision")?.ToObject(Of Integer)(), 1)
+                        If If(Mark("serverId")?.ToString(), "") <> "" AndAlso
+                           If(Mark("serverId")?.ToString(), "") <> ServerId Then Continue For
+                        '已登记实例: 按标记 packId 在全部包中匹配（多包服务器原只认第一个包, 会漏识别）
+                        Dim Matched As JObject = Nothing
+                        For Each PackToken As JToken In Packs
+                            Dim Pack As JObject = TryCast(PackToken, JObject)
+                            If Pack IsNot Nothing AndAlso
+                               If(Mark("packId")?.ToString(), "") = If(Pack("id")?.ToString(), "") Then
+                                Matched = Pack
+                                Exit For
+                            End If
+                        Next
+                        If Matched Is Nothing Then Continue For
+                        Dim PackId As String = If(Matched("id")?.ToString(), "")
+                        Dim RemoteJava As Integer = If(Matched("javaVersion")?.ToObject(Of Integer)(), 0)
+                        Dim LocalRevision As Integer = If(Mark("revision")?.ToObject(Of Integer)(), 1)
                         '老标记缺少 Java 要求时按服务端补写, 不必等下一次整包更新
                         If RemoteJava > 0 AndAlso If(Mark("javaVersion")?.ToObject(Of Integer)(), 0) <> RemoteJava Then
                             WriteMark(dir, PackId, ServerId, LocalRevision,
@@ -193,31 +202,56 @@ Public Module ModPackRevision
                                       If(Mark("sha256")?.ToString(), ""), RemoteJava)
                             Logger.Info("已补写整合包 Java 要求: " & instName & " -> Java " & RemoteJava)
                         End If
+                        result.Add(New PackInstance With {
+                            .ServerId = ServerId,
+                            .ServerName = ServerName,
+                            .PackId = PackId,
+                            .PackName = If(Matched("name")?.ToString(), ""),
+                            .InstanceName = instName,
+                            .InstancePath = dir,
+                            .CurrentRevision = LocalRevision,
+                            .RemoteRevision = If(Matched("revision")?.ToObject(Of Integer)(), 1)
+                        })
+                        Exit For
                     Else
                         If Not MatchInstance(instName, ServerId, ServerName) Then Continue For
-                        '没有标记的实例: 用服务端清单自动比对本地文件, 匹配就自动补标记
-                        Dim AutoRevision As Integer = MatchLocalRevision(dir, Pack)
+                        '没有标记的实例: 逐个包用服务端清单自动比对本地文件, 匹配就自动补标记
+                        Dim AutoPack As JObject = Nothing
+                        Dim AutoRevision As Integer = 0
+                        For Each PackToken As JToken In Packs
+                            Dim Pack As JObject = TryCast(PackToken, JObject)
+                            If Pack Is Nothing Then Continue For
+                            AutoRevision = MatchLocalRevision(dir, Pack)
+                            If AutoRevision > 0 Then
+                                AutoPack = Pack
+                                Exit For
+                            End If
+                        Next
+                        If AutoPack Is Nothing Then AutoPack = TryCast(Packs(0), JObject) '清单比对全失败时按第一个包宽松登记
+                        If AutoPack Is Nothing Then Continue For
+                        Dim PackId As String = If(AutoPack("id")?.ToString(), "")
+                        Dim RemoteJava As Integer = If(AutoPack("javaVersion")?.ToObject(Of Integer)(), 0)
+                        Dim LocalRevision As Integer = AutoRevision
                         If AutoRevision > 0 Then
-                            Dim RemoteRev As Integer = If(Pack("revision")?.ToObject(Of Integer)(), 1)
-                            Dim RemoteSha As String = If(Pack("sha256")?.ToString(), "").ToLowerInvariant()
+                            Dim RemoteRev As Integer = If(AutoPack("revision")?.ToObject(Of Integer)(), 1)
+                            Dim RemoteSha As String = If(AutoPack("sha256")?.ToString(), "").ToLowerInvariant()
                             '只有确认是最新版才写哈希, 旧版留空以便按 revision 继续走补丁链
                             WriteMark(dir, PackId, ServerId, AutoRevision, dir,
                                       If(AutoRevision = RemoteRev, RemoteSha, ""), RemoteJava)
-                            LocalRevision = AutoRevision
                             Logger.Info("自动识别整合包版本: " & instName & " -> revision " & AutoRevision)
                         End If
+                        result.Add(New PackInstance With {
+                            .ServerId = ServerId,
+                            .ServerName = ServerName,
+                            .PackId = PackId,
+                            .PackName = If(AutoPack("name")?.ToString(), ""),
+                            .InstanceName = instName,
+                            .InstancePath = dir,
+                            .CurrentRevision = LocalRevision,
+                            .RemoteRevision = If(AutoPack("revision")?.ToObject(Of Integer)(), 1)
+                        })
+                        Exit For
                     End If
-                    result.Add(New PackInstance With {
-                        .ServerId = ServerId,
-                        .ServerName = ServerName,
-                        .PackId = PackId,
-                        .PackName = If(Pack("name")?.ToString(), ""),
-                        .InstanceName = instName,
-                        .InstancePath = dir,
-                        .CurrentRevision = LocalRevision,
-                        .RemoteRevision = If(Pack("revision")?.ToObject(Of Integer)(), 1)
-                    })
-                    Exit For
                 Next
             Next
         Catch ex As Exception
@@ -389,7 +423,9 @@ Public Module ModPackRevision
                            Not urls.Contains(primary) Then urls.Add(primary)
                         If rel = "" OrElse urls.Count = 0 Then Continue For
                         Dim full As String = IO.Path.GetFullPath(IO.Path.Combine(rootFull, rel))
-                        If Not full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) Then Continue For
+                        '带分隔符比较，防止兄弟目录（..\Minecraft2\x）通过校验
+                        If Not full.StartsWith(rootFull.TrimEnd("\"c) & "\", StringComparison.OrdinalIgnoreCase) AndAlso
+                           Not String.Equals(full, rootFull.TrimEnd("\"c), StringComparison.OrdinalIgnoreCase) Then Continue For
                         Dim tmp As String = IO.Path.Combine(staging,
                             Guid.NewGuid().ToString("N") & IO.Path.GetExtension(full))
                         Dim displayName As String = IO.Path.GetFileName(full)
@@ -423,7 +459,7 @@ Public Module ModPackRevision
                         If rel = "" Then Continue For
                         Try
                             Dim full As String = IO.Path.GetFullPath(IO.Path.Combine(rootFull, rel))
-                            If Not full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) Then Continue For
+                            If Not full.StartsWith(rootFull.TrimEnd("\"c) & "\", StringComparison.OrdinalIgnoreCase) Then Continue For
                             If File.Exists(full) Then
                                 File.Delete(full)
                                 deleted += 1
@@ -455,8 +491,14 @@ Public Module ModPackRevision
             '服务端只更新了哈希却没有可用补丁时, 不能假装更新成功
             If Not appliedAny Then
                 '整包被重新覆盖但修订号没有前进时, 本地内容其实已是最新:
-                '只同步标记里的哈希, 避免每次启动都报"没有可用的增量补丁"
+                '只同步标记里的哈希, 避免每次启动都报"没有可用的增量补丁"。
+                '但哈希不同说明内容确实变了（revision 没动时）：绝不能把新哈希写到旧内容上,
+                '否则下次哈希比对永久相等, 用户再也收不到更新
                 If revision >= Info.RemoteRevision Then
+                    If Info.LocalSha256 <> "" AndAlso Info.RemoteSha256 <> "" AndAlso
+                       Info.LocalSha256 <> Info.RemoteSha256 Then
+                        Throw New Exception("服务端更新了整合包内容但没有提供补丁, 请重新下载整合包")
+                    End If
                     WriteMark(Info.InstancePath, Info.PackId, Info.ServerId, Info.RemoteRevision, rootFull, Info.RemoteSha256, Info.JavaVersion)
                     Report("已是最新修订, 仅同步整包哈希", 1)
                     Logger.Info("整合包 " & Info.PackId & " 无可用补丁, 本地修订 " & revision &
@@ -495,11 +537,7 @@ Public Module ModPackRevision
             Catch ex As Exception
                 LastError = ex
                 Logger.Warn(ex, "补丁下载失败, 尝试下一个源: " & Url)
-                Try
-                    If File.Exists(Target) Then File.Delete(Target)
-                Catch
-                    ' 清理失败忽略
-                End Try
+                '保留半成品文件给下一个源断点续传；下一个源会校验 206, 不支持则整文件重下
             End Try
         Next
         Throw New Exception("补丁下载失败(已尝试 " & Urls.Count & " 个源): " &
@@ -522,6 +560,10 @@ Public Module ModPackRevision
             If StartAt > 0 Then Request.AddRange(StartAt)
         End If
         Using Response As Net.HttpWebResponse = DirectCast(Request.GetResponse(), Net.HttpWebResponse)
+            '服务器忽略 Range 请求返回 200 时, 半成品不可作为续传基线, 改为整文件重下
+            If StartAt > 0 AndAlso Response.StatusCode <> Net.HttpStatusCode.PartialContent Then
+                StartAt = 0
+            End If
             Dim Total As Long = ExpectedSize
             If Total <= 0 Then Total = Response.ContentLength + StartAt
             Using Input As IO.Stream = Response.GetResponseStream()

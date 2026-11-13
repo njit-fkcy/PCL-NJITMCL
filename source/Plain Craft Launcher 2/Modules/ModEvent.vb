@@ -334,14 +334,13 @@ Public Class CustomEvent
                     End Try
 
                 Case EventType.加入房间
+                    'EasyTier 原联机的 CLI 调用已被移除，进入后只会卡死，
+                    '这里封死入口并引导到 NJIT 房间系统
                     RunInUi(
                     Sub()
-                        If String.IsNullOrWhiteSpace(Arg) Then
-                            PageLinkMain.Join()
-                        Else
-                            If Not EventSafetyConfirm("即将加入第三方联机房间。") Then Return
-                            PageLinkMain.Join(Arg)
-                        End If
+                        MyMsgBox("原 EasyTier 联机已停用，请使用「联机 → 房间」加入社团房间。" &
+                                 If(String.IsNullOrWhiteSpace(Arg), "", vbCrLf & "邀请码：" & Arg),
+                                 "联机入口已迁移", "我知道了")
                     End Sub)
 
                 Case EventType.检查更新

@@ -375,6 +375,11 @@ EndHint:
 
     '联机页面声明
     Public FrmLinkMain As PageLinkMain
+    Public FrmLinkLeft As PageLinkLeft
+    Public FrmLinkMine As PageLinkMine
+    Public FrmLinkServer As PageLinkServer
+    Public FrmLinkRoom As PageLinkRoom
+    Public FrmLinkFriend As PageLinkFriend
 
     '下载页面声明
     Public FrmDownloadLeft As PageDownloadLeft

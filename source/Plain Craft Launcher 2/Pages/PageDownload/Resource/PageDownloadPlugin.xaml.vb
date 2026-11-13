@@ -1,3 +1,4 @@
+Imports System.Windows
 Imports System.Windows.Controls
 
 ''' <summary>
@@ -6,11 +7,8 @@ Imports System.Windows.Controls
 Public Class PageDownloadPlugin
     Implements IRefreshable
 
-    Private Shared HasLoaded As Boolean = False
-
+    '每次进入都重新拉取，保证「更新」判定与线上版本一致
     Private Sub PageEnterHandler() Handles Me.PageEnter
-        If HasLoaded Then Return
-        HasLoaded = True
         Reload()
     End Sub
 
@@ -66,35 +64,60 @@ Public Class PageDownloadPlugin
         Grid.SetColumn(InfoPanel, 0)
         Row.Children.Add(InfoPanel)
 
-        Dim Installed As Boolean = ModPlugin.IsInstalled(Plugin)
+        Dim LocalVersion As String = ModPlugin.GetInstalledVersion(Plugin)
+        Dim HasUpdate As Boolean = LocalVersion <> "" AndAlso ModPlugin.NeedsUpdate(Plugin)
         Dim Action As New MyButton With {
-            .Text = If(Installed, "打开", "安装"),
+            .Text = If(HasUpdate, "更新", If(LocalVersion <> "", "打开", "安装")),
             .Padding = New Thickness(13, 0, 13, 0),
             .Height = 28,
             .MinWidth = 76,
-            .ColorType = If(Installed, MyButton.ColorState.Normal, MyButton.ColorState.Highlight),
+            .ColorType = If(LocalVersion = "" OrElse HasUpdate, MyButton.ColorState.Highlight, MyButton.ColorState.Normal),
+            .VerticalAlignment = VerticalAlignment.Center}
+        Dim UninstallButton As New MyButton With {
+            .Text = "卸载",
+            .Padding = New Thickness(13, 0, 13, 0),
+            .Height = 28,
+            .MinWidth = 76,
+            .Margin = New Thickness(8, 0, 0, 0),
+            .ColorType = MyButton.ColorState.Normal,
+            .VerticalAlignment = VerticalAlignment.Center,
+            .Visibility = If(LocalVersion <> "", Visibility.Visible, Visibility.Collapsed)}
+        AddHandler Action.Click, Sub() HandleAction(Plugin, Action, UninstallButton)
+        AddHandler UninstallButton.Click, Sub() HandleUninstall(Plugin, Action, UninstallButton)
+        Dim Actions As New StackPanel With {
+            .Orientation = Orientation.Horizontal,
             .HorizontalAlignment = HorizontalAlignment.Right,
             .VerticalAlignment = VerticalAlignment.Center}
-        AddHandler Action.Click, Sub() HandleAction(Plugin, Action)
-        Grid.SetColumn(Action, 1)
-        Row.Children.Add(Action)
+        Actions.Children.Add(UninstallButton)
+        Actions.Children.Add(Action)
+        Grid.SetColumn(Actions, 1)
+        Row.Children.Add(Actions)
         Return Row
     End Function
 
-    Private Sub HandleAction(Plugin As NjitPlugin, Action As MyButton)
-        If ModPlugin.IsInstalled(Plugin) Then
+    Private Sub HandleAction(Plugin As NjitPlugin, Action As MyButton, UninstallButton As MyButton)
+        Dim LocalVersion As String = ModPlugin.GetInstalledVersion(Plugin)
+        If LocalVersion <> "" AndAlso Not ModPlugin.NeedsUpdate(Plugin) Then
             Try
-                ModPlugin.Launch(Plugin)
+                If Not ModPlugin.Launch(Plugin) Then
+                    Hint("启动插件失败：安装目录中找不到入口程序，请尝试重新安装", HintType.Red)
+                    Return
+                End If
                 Hint("已启动插件：" & Plugin.Name, HintType.Green)
             Catch ex As Exception
                 Hint("启动插件失败：" & ex.Message, HintType.Red)
             End Try
             Return
         End If
-        If MyMsgBox($"确定安装插件「{Plugin.Name}」吗？{vbCrLf}插件由第三方提供并以独立进程运行，启动器不对其行为负责。",
-                    "安装插件", "安装", "取消") = 2 Then Return
+        Dim IsUpdate As Boolean = LocalVersion <> ""
+        Dim Question As String = If(IsUpdate,
+            $"确定将插件「{Plugin.Name}」更新到 {Plugin.Version} 吗？",
+            $"确定安装插件「{Plugin.Name}」吗？")
+        If MyMsgBox(Question & vbCrLf & "插件由第三方提供并以独立进程运行，启动器不对其行为负责。",
+                    If(IsUpdate, "更新插件", "安装插件"), If(IsUpdate, "更新", "安装"), "取消") = 2 Then Return
         Action.IsEnabled = False
-        Action.Text = "安装中……"
+        UninstallButton.IsEnabled = False
+        Action.Text = If(IsUpdate, "更新中……", "安装中……")
         RunInNewThread(
         Sub()
             Try
@@ -104,18 +127,54 @@ Public Class PageDownloadPlugin
                     Action.Text = "打开"
                     Action.ColorType = MyButton.ColorState.Normal
                     Action.IsEnabled = True
-                    Hint("插件已安装：" & Plugin.Name, HintType.Green)
+                    UninstallButton.IsEnabled = True
+                    UninstallButton.Visibility = Visibility.Visible
+                    Hint("插件已" & If(IsUpdate, "更新", "安装") & "：" & Plugin.Name, HintType.Green)
                 End Sub)
             Catch ex As Exception
                 Logger.Warn(ex, "安装插件失败：" & Plugin.Id)
                 RunInUi(
                 Sub()
-                    Action.Text = "安装"
+                    Action.Text = If(IsUpdate, "更新", "安装")
                     Action.IsEnabled = True
-                    Hint("安装插件失败：" & ex.Message, HintType.Red)
+                    UninstallButton.IsEnabled = True
+                    Hint(If(IsUpdate, "更新", "安装") & "插件失败：" & ex.Message, HintType.Red)
                 End Sub)
             End Try
         End Sub, "PluginInstall")
+    End Sub
+
+    Private Sub HandleUninstall(Plugin As NjitPlugin, Action As MyButton, UninstallButton As MyButton)
+        If MyMsgBox($"确定卸载插件「{Plugin.Name}」吗？{vbCrLf}将删除已安装的全部版本及插件数据，无法恢复。",
+                    "卸载插件", "卸载", "取消") = 2 Then Return
+        Action.IsEnabled = False
+        UninstallButton.IsEnabled = False
+        UninstallButton.Text = "卸载中……"
+        RunInNewThread(
+        Sub()
+            Try
+                ModPlugin.Uninstall(Plugin)
+                RunInUi(
+                Sub()
+                    Action.Text = "安装"
+                    Action.ColorType = MyButton.ColorState.Highlight
+                    Action.IsEnabled = True
+                    UninstallButton.Text = "卸载"
+                    UninstallButton.IsEnabled = True
+                    UninstallButton.Visibility = Visibility.Collapsed
+                    Hint("插件已卸载：" & Plugin.Name, HintType.Green)
+                End Sub)
+            Catch ex As Exception
+                Logger.Warn(ex, "卸载插件失败：" & Plugin.Id)
+                RunInUi(
+                Sub()
+                    Action.IsEnabled = True
+                    UninstallButton.Text = "卸载"
+                    UninstallButton.IsEnabled = True
+                    Hint("卸载插件失败：" & ex.Message, HintType.Red)
+                End Sub)
+            End Try
+        End Sub, "PluginUninstall")
     End Sub
 
 End Class

@@ -234,10 +234,16 @@
     <Compile Include="Modules\ModSiteAuth.vb" />
     <Compile Include="Modules\ModGithubIp.vb" />
     <Compile Include="Modules\ModPlugin.vb" />
+    <Compile Include="Modules\ModSocial.vb" />
+    <Compile Include="Modules\ModSocialUi.vb" />
+    <Compile Include="Modules\ModServerList.vb" />
     <Compile Include="Modules\ModPackRevision.vb" />
     <Compile Include="Modules\ModUpdate.vb" />
     <Compile Include="Controls\MyExtraButton.xaml.vb">
       <DependentUpon>MyExtraButton.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\ClubLifePanel.xaml.vb">
+      <DependentUpon>ClubLifePanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="Controls\MyHint.xaml.vb">
       <DependentUpon>MyHint.xaml</DependentUpon>
@@ -317,6 +323,21 @@
     </Compile>
     <Compile Include="Pages\PageLink\PageLinkMain.xaml.vb">
       <DependentUpon>PageLinkMain.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLink\PageLinkLeft.xaml.vb">
+      <DependentUpon>PageLinkLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLink\PageLinkMine.xaml.vb">
+      <DependentUpon>PageLinkMine.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLink\PageLinkServer.xaml.vb">
+      <DependentUpon>PageLinkServer.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLink\PageLinkRoom.xaml.vb">
+      <DependentUpon>PageLinkRoom.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLink\PageLinkFriend.xaml.vb">
+      <DependentUpon>PageLinkFriend.xaml</DependentUpon>
     </Compile>
     <Compile Include="Pages\PageOther\PageOtherHelpDetail.xaml.vb">
       <DependentUpon>PageOtherHelpDetail.xaml</DependentUpon>
@@ -431,6 +452,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Controls\MyIconButton.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Controls\ClubLifePanel.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -581,6 +606,26 @@
       <SubType>Designer</SubType>
     </None>
     <Page Include="Pages\PageLink\PageLinkMain.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageLink\PageLinkLeft.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageLink\PageLinkMine.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageLink\PageLinkServer.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageLink\PageLinkRoom.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageLink\PageLinkFriend.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
@@ -968,10 +1013,4 @@
 
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
-  <Target Name="CopyWireGuard" AfterTargets="Build">
-    <ItemGroup>
-      <WireGuardFiles Include="WireGuard\**\*" />
-    </ItemGroup>
-    <Copy SourceFiles="@(WireGuardFiles)" DestinationFolder="$(OutputPath)WireGuard\" SkipUnchangedFiles="true" />
-  </Target>
 </Project>

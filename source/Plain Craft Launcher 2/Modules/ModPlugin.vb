@@ -131,6 +131,77 @@ Public Module ModPlugin
     End Function
 
     ''' <summary>
+    ''' 本地已安装的最高版本号；没有安装时返回空字符串。
+    ''' </summary>
+    Public Function GetInstalledVersion(Plugin As NjitPlugin) As String
+        Dim Root As String = PluginsFolder & Plugin.Id & "\"
+        If Not DirectoryUtils.Exists(Root) Then Return ""
+        Dim Folders As String() = {}
+        Try
+            Folders = IO.Directory.GetDirectories(Root)
+        Catch ex As Exception
+            Logger.Warn(ex, "读取插件安装目录失败：" & Root)
+            Return ""
+        End Try
+        Dim Best As String = ""
+        For Each Folder As String In Folders
+            Dim Version As String = IO.Path.GetFileName(Folder)
+            Dim JsonPath As String = IO.Path.Combine(Folder, "plugin.json")
+            If FileUtils.Exists(JsonPath) Then
+                Try
+                    Dim Obj As JObject = JObject.Parse(FileUtils.ReadAsString(JsonPath))
+                    Dim Value As String = If(Obj("version")?.ToString(), "").Trim()
+                    If Value <> "" Then Version = Value
+                Catch
+                    'plugin.json 损坏时退回目录名
+                End Try
+            End If
+            If Version <> "" AndAlso CompareVersion(Version, Best) > 0 Then Best = Version
+        Next
+        Return Best
+    End Function
+
+    ''' <summary>
+    ''' 比较两个版本号：Left 较新返回 1，较旧返回 -1，相同返回 0。
+    ''' </summary>
+    Public Function CompareVersion(Left As String, Right As String) As Integer
+        Dim A As Integer() = VersionTuple(Left)
+        Dim B As Integer() = VersionTuple(Right)
+        For i = 0 To 3
+            If A(i) > B(i) Then Return 1
+            If A(i) < B(i) Then Return -1
+        Next
+        Return 0
+    End Function
+
+    ''' <summary>
+    ''' 已安装但低于市场上架版本时返回 True。
+    ''' </summary>
+    Public Function NeedsUpdate(Plugin As NjitPlugin) As Boolean
+        Dim InstalledVersion As String = GetInstalledVersion(Plugin)
+        Return InstalledVersion <> "" AndAlso CompareVersion(Plugin.Version, InstalledVersion) > 0
+    End Function
+
+    ''' <summary>
+    ''' 删除该插件的全部版本目录；插件正在运行时文件被占用，删除后会检测残留并报错。
+    ''' </summary>
+    Public Sub Uninstall(Plugin As NjitPlugin)
+        Dim EntryPath As String = GetEntryPath(Plugin)
+        '先确认入口程序未被占用，避免删到一半留下残缺目录
+        If FileUtils.Exists(EntryPath) Then
+            Try
+                Using Stream As New IO.FileStream(EntryPath, IO.FileMode.Open, IO.FileAccess.ReadWrite, IO.FileShare.None)
+                End Using
+            Catch ex As IO.IOException
+                Throw New Exception("插件正在运行，请先关闭插件后再卸载")
+            End Try
+        End If
+        Dim Root As String = PluginsFolder & Plugin.Id & "\"
+        DirectoryUtils.Delete(Root)
+        If DirectoryUtils.Exists(Root) Then Throw New Exception("插件文件正被占用，请先关闭插件后再卸载")
+    End Sub
+
+    ''' <summary>
     ''' 启动已安装的插件，返回是否成功唤起。
     ''' </summary>
     Public Function Launch(Plugin As NjitPlugin) As Boolean

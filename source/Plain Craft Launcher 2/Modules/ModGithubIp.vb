@@ -36,7 +36,7 @@ Public Module ModGithubIp
          New String() {"185.199.110.133", "185.199.108.133", "185.199.109.133", "185.199.111.133"}}}
 
     Private Const CacheTtlMs As Long = 6L * 60 * 60 * 1000
-    Private Const ProbeTimeoutMs As Integer = 4000
+    Private Const ProbeTimeoutMs As Integer = 9000 '实测 GitHub 单次连接常需 3~4 秒，超时过短会误判可用 IP
     Private Const ProbeWorkers As Integer = 12
 
     Private Class CacheEntry
@@ -113,7 +113,8 @@ Public Module ModGithubIp
     ''' <summary>连接失败时把该 IP 短暂拉黑，下次优先换下一个。</summary>
     Public Sub ReportFailure(domain As String, ip As String)
         SyncLock CacheLock
-            FailedUntil(domain.Trim().ToLowerInvariant() & "|" & ip) = GetTimeMs() + 10L * 60 * 1000
+            '只拉黑 90 秒：网络抖动时若长时间拉黑，全部 IP 会被轮番禁用，导致代理持续 502
+            FailedUntil(domain.Trim().ToLowerInvariant() & "|" & ip) = GetTimeMs() + 90L * 1000
         End SyncLock
     End Sub
 

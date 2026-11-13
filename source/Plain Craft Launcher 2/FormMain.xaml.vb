@@ -388,6 +388,8 @@ Public Class FormMain
         'MinWidth = 50
         Topmost = False
         If FrmStart IsNot Nothing Then FrmStart.Close(New TimeSpan(0, 0, 0, 0, 400 / AniSpeed))
+        '联机模式关闭时置灰顶部导航
+        RefreshSocialModeNav()
         '更改窗口
         Top = (GetWPFSize(My.Computer.Screen.WorkingArea.Height) - Height) / 2
         Left = (GetWPFSize(My.Computer.Screen.WorkingArea.Width) - Width) / 2
@@ -562,6 +564,8 @@ Public Class FormMain
         EndProgram(True)
         e.Cancel = True
     End Sub
+    '退出时的联机清理任务（后台执行，避免 UI 卡顿；进程退出前最多等 2.5 秒送达）
+    Private Shared CleanupTask As System.Threading.Tasks.Task = Nothing
     ''' <summary>
     ''' 正常关闭程序。程序将在执行此方法后约 0.3s 退出。
     ''' </summary>
@@ -580,8 +584,13 @@ Public Class FormMain
         End If
         '关闭联机？
         If FrmLinkMain?.TryExit(Not SendWarning, True) Then Return
-        '断开校内组网（同步执行，确保隧道在进程退出前卸载）
-        WgDisconnectOnExit()
+        '关闭 NJIT 联机：删除自己的房间，并停止 frpc / 访客进程。
+        '放后台执行（C28），窗口动画期间请求并行发出，进程退出前再限时等待
+        Try
+            CleanupTask = System.Threading.Tasks.Task.Run(Sub() ModSocial.Shutdown())
+        Catch ex As Exception
+            Logger.Warn(ex, "退出时清理联机失败")
+        End Try
         '关闭
         RunInUiWait(
         Sub()
@@ -620,8 +629,6 @@ Public Class FormMain
         IsProgramEnding = True
         AniControlEnabled += 1
         If IsUpdateWaitingRestart Then UpdateRestart(False)
-        '兜底：异常退出、更新重启等绕过 EndProgram 的路径也先断开校内组网（已断开时立即返回）
-        WgDisconnectOnExit()
         If ReturnCode = ProcessReturnValues.Exception Then
             If Not IsLogShown Then
                 FeedbackInfo()
@@ -632,6 +639,8 @@ Public Class FormMain
             Thread.Sleep(500) '防止 PCL 在记事本打开前就被掐掉
         End If
         Logger.Info($"程序已退出，返回值：{ReturnCode}")
+        '给联机清理最多 2.5 秒送达窗口，超时不再等待（本方法已由 On Error Resume Next 兜底）
+        If CleanupTask IsNot Nothing Then CleanupTask.Wait(2500)
         ConfigUtils.SaveAll()
         Logger.Instance.Flush()
         If ReturnCode <> ProcessReturnValues.Success Then Environment.Exit(ReturnCode)
@@ -1245,9 +1254,14 @@ Public Class FormMain
         SetupUI = 2
         SetupSystem = 3
         LinkMain = 0
+        LinkMine = 0
+        LinkServer = 1
+        LinkRoom = 2
+        LinkFriend = 3
         OtherHelp = 0
         OtherAbout = 1
         OtherTest = 2
+        OtherSocial = 3
         InstanceOverall = 0
         InstanceSetup = 1
         InstanceModify = 2
@@ -1311,6 +1325,9 @@ Public Class FormMain
                 Case PageType.Other
                     If FrmOtherLeft Is Nothing Then FrmOtherLeft = New PageOtherLeft
                     Return FrmOtherLeft.PageID
+                Case PageType.Link
+                    If FrmLinkLeft Is Nothing Then FrmLinkLeft = New PageLinkLeft
+                    Return FrmLinkLeft.PageID
                 Case PageType.InstanceSetup
                     If FrmInstanceLeft Is Nothing Then FrmInstanceLeft = New PageInstanceLeft
                     Return FrmInstanceLeft.PageID
@@ -1382,6 +1399,9 @@ Public Class FormMain
                 Case PageType.Other
                     If FrmOtherLeft Is Nothing Then FrmOtherLeft = New PageOtherLeft
                     CType(FrmOtherLeft.PanItem.Children(SubType), MyListItem).SetChecked(True, True, Stack = PageCurrent)
+                Case PageType.Link
+                    If FrmLinkLeft Is Nothing Then FrmLinkLeft = New PageLinkLeft
+                    CType(FrmLinkLeft.PanItem.Children(SubType), MyListItem).SetChecked(True, True, Stack = PageCurrent)
             End Select
             PageChangeActual(Stack, SubType)
         Else
@@ -1400,6 +1420,18 @@ Public Class FormMain
     Private Sub BtnTitleSelect_Click(sender As MyRadioButton, raiseByMouse As Boolean) Handles BtnTitleSelect0.Check, BtnTitleSelect1.Check, BtnTitleSelect2.Check, BtnTitleSelect3.Check, BtnTitleSelect4.Check
         If IsChangingPage Then Return
         PageChangeActual(Val(sender.Tag))
+    End Sub
+    ''' <summary>
+    ''' 联机模式关闭时把顶部「联机」入口置灰，避免绕过启动页开关进入联机页面。
+    ''' </summary>
+    Public Sub RefreshSocialModeNav()
+        If BtnTitleSelect2 Is Nothing Then Return
+        Dim Enable As Boolean = ModSocial.SocialModeEnabled
+        BtnTitleSelect2.IsEnabled = Enable
+        BtnTitleSelect2.Opacity = If(Enable, 1, 0.4)
+        BtnTitleSelect2.ToolTip = If(Enable, Nothing, "打开联机模式以使用")
+        '控件禁用时 WPF 默认不弹提示，需要显式允许
+        ToolTipService.SetShowOnDisabled(BtnTitleSelect2, True)
     End Sub
     ''' <summary>
     ''' 通过点击返回按钮或手动触发返回来改变页面。
@@ -1477,8 +1509,8 @@ Public Class FormMain
                     'PageGet 方法会在未设置 SubType 时指定默认值，并建立相关页面的实例
                     PageChangeAnim(FrmDownloadLeft, FrmDownloadLeft.PageGet(SubType))
                 Case PageType.Link '联机
-                    If FrmLinkMain Is Nothing Then FrmLinkMain = New PageLinkMain
-                    PageChangeAnim(New MyPageLeft, FrmLinkMain)
+                    If FrmLinkLeft Is Nothing Then FrmLinkLeft = New PageLinkLeft
+                    PageChangeAnim(FrmLinkLeft, FrmLinkLeft.PageGet(SubType))
                 Case PageType.Setup '设置
                     If FrmSetupLeft Is Nothing Then FrmSetupLeft = New PageSetupLeft
                     PageChangeAnim(FrmSetupLeft, FrmSetupLeft.PageGet(SubType))

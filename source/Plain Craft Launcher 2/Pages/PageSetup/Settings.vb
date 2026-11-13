@@ -56,6 +56,12 @@ Public Class Settings
         New Setting("CacheMsV2Uuid", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("CacheMsV2Name", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("CacheMsV2Expires", 0L, Source:=Sources.Registry, Encrypted:=True),
+        New Setting("SocialToken", "", Source:=Sources.Registry, Encrypted:=True),
+        New Setting("SocialUsername", "", Source:=Sources.Registry),
+        New Setting("SocialAccountId", "", Source:=Sources.Registry),
+        New Setting("SocialModeEnabled", "1", Source:=Sources.Registry),
+        New Setting("SocialJoinerServer", "", Source:=Sources.Registry),
+        New Setting("SocialJoinerRoom", "", Source:=Sources.Registry),
         New Setting("CacheNideAccess", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("CacheNideClient", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("CacheNideUuid", "", Source:=Sources.Registry, Encrypted:=True),
@@ -85,8 +91,6 @@ Public Class Settings
         New Setting("LoginAuthPass", "", Source:=Sources.Registry, Encrypted:=True),
         New Setting("MuaLoggedIn", False, Source:=Sources.Registry),
         New Setting("MuaEmail", "", Source:=Sources.Registry, Encrypted:=True),
-        New Setting("MuaPass", "", Source:=Sources.Registry, Encrypted:=True),
-        New Setting("NJITWgAutoConnect", True, Source:=Sources.Registry),
         New Setting("LoginType", McLoginType.Ms, Source:=Sources.Registry),
         New Setting("LoginPageType", 0),
         New Setting("LaunchSkinID", "", Source:=Sources.Registry, OnChanged:=Sub() PageLaunchLeft.SkinLegacy.Start()),
@@ -322,7 +326,6 @@ Public Class Settings
         If Value IsNot Nothing Then Return Value
         '对部分设置强制赋值
         Static ForcedSettings As New Dictionary(Of String, Object) From {
-            {"UiHiddenPageLink", True},
             {"UiHiddenSetupLink", True}
         }
         Dim ForcedSetting As Object = Nothing

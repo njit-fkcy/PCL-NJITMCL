@@ -3,6 +3,7 @@ Public Class PageSetupLeft
     Private IsLoad As Boolean = False
     Private IsPageSwitched As Boolean = False '如果在 Loaded 前切换到其他页面，会导致触发 Loaded 时再次切换一次
     Private Sub PageSetupLeft_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
+        RefreshLinkState()
         '是否处于隐藏的子页面
         Dim IsHiddenPage As Boolean = False
         If ItemLaunch.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenSetupLaunch") Then IsHiddenPage = True
@@ -31,6 +32,18 @@ Public Class PageSetupLeft
     End Sub
     Private Sub PageOtherLeft_Unloaded(sender As Object, e As RoutedEventArgs) Handles Me.Unloaded
         IsPageSwitched = False
+    End Sub
+
+    ''' <summary>
+    ''' 按联机模式开关刷新「联机」入口的可用状态。
+    ''' </summary>
+    Public Sub RefreshLinkState()
+        Dim Enable As Boolean = ModSocial.SocialModeEnabled
+        ItemLink.IsEnabled = Enable
+        ItemLink.Opacity = If(Enable, 1, 0.4)
+        ItemLink.ToolTip = If(Enable, Nothing, "联机模式已关闭，请在启动页开启")
+        '控件禁用时 WPF 默认不弹提示，需要显式允许
+        ToolTipService.SetShowOnDisabled(ItemLink, True)
     End Sub
 
 #Region "页面切换"

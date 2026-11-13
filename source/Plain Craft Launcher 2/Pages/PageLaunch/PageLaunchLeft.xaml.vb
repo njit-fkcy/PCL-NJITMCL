@@ -1,3 +1,6 @@
+Imports System.Threading
+Imports System.Windows
+Imports System.Windows.Input
 Imports System.Windows.Threading
 
 Public Class PageLaunchLeft
@@ -653,10 +656,49 @@ Finish:
         '实际的启动
         If BtnLaunch.Text = "启动游戏" Then
             '整合包有未应用的强制修订时先拦下来（启动前实时复查一次，避免列表缓存过期）
-            If FrmLaunchRight IsNot Nothing AndAlso FrmLaunchRight.HasPendingUpdatesNow() Then
+            If FrmLinkServer Is Nothing Then FrmLinkServer = New PageLinkServer
+            If FrmLinkServer.HasPendingUpdatesNow() Then
                 Hint("当前整合包有新修订，请先点击「立即更新」", HintType.Red)
                 MyMsgBox("该整合包的模组列表已更新，需要先应用修订才能启动游戏。" & vbCrLf &
-                         "请在主界面右侧的「整合包修订」卡片点击「立即更新」。", "需要更新整合包")
+                         "请到「联机 → 服务器」页面的「整合包修订」卡片点击「立即更新」。", "需要更新整合包")
+                Return
+            End If
+            '联机协商（访客地址刷新、社团服务器地址探测）放后台执行，避免弱网时界面冻结；
+            'McLaunchStart 要求 UI 线程，协商完成后再回 UI 线程启动
+            If ModSocial.SocialModeEnabled Then
+                Hint("联机模式：正在协商进服地址……")
+                RunInNewThread(
+                Sub()
+                    Dim ClubAddress As String = Nothing
+                    Try
+                        '访客：切换网络后旧地址可能失效，启动前重新评估一次（校内不可达则回公网）
+                        If Not String.IsNullOrEmpty(ModSocial.JoinerServer) Then
+                            ModSocial.RefreshJoinerAddress()
+                        End If
+                        '访客地址仍为空时协商社团服务器地址（内网 → 穿透 → 公网）
+                        If String.IsNullOrEmpty(ModSocial.JoinerServer) Then
+                            ClubAddress = FrmLinkServer.ResolveClubServerForLaunch(McInstanceSelected)
+                        End If
+                    Catch ex As Exception
+                        Logger.Warn(ex, "联机地址协商失败，按普通启动继续")
+                    End Try
+                    RunInUi(
+                    Sub()
+                        If ClubAddress IsNot Nothing Then
+                            If ClubAddress = "" Then
+                                Logger.Warn($"社团服务器不可达，取消启动：{McInstanceSelected?.Name}")
+                                Hint("社团服务器离线，已取消启动", HintType.Red)
+                                MyMsgBox("这台服务器的内网与公网地址都连不上，暂时无法进入。" & vbCrLf &
+                                         "可以稍后再试，或联系社团管理员确认服务器状态。", "社团服务器离线")
+                                Return
+                            End If
+                            Logger.Info($"社团服务器地址协商完成，本次进入：{ClubAddress}")
+                            McLaunchStart(New McLaunchOptions With {.ServerIp = ClubAddress})
+                            Return
+                        End If
+                        McLaunchStart()
+                    End Sub)
+                End Sub, "LaunchNegotiate")
                 Return
             End If
             McLaunchStart()

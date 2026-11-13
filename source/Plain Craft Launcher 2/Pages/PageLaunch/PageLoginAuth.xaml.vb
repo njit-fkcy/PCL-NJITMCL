@@ -85,7 +85,7 @@ Public Class PageLoginAuth
     End Sub
 
     ''' <summary>
-    ''' 只登录账号，不启动游戏；认证服务器是 MUA 时登录成功后会顺带连接校内组网。
+    ''' 只登录账号，不启动游戏。
     ''' </summary>
     Private Sub BtnLoginOnly_Click(sender As Object, e As MouseButtonEventArgs) Handles BtnLoginOnly.Click
         Dim LoginData As McLoginServer = GetLoginData()
@@ -107,10 +107,9 @@ Public Class PageLoginAuth
                             ApplyAuthLogin(Json, LoginData.BaseUrl, LoginData.UserName, LoginData.Password)
                             BtnLoginOnly.Text = "登录"
                             BtnLoginOnly.IsEnabled = True
-                            Hint(If(IsMua, "MUA 登录成功，正在准备校内组网", "登录成功"))
+                            Hint("登录成功")
                             '登录后立刻切到头像页，显示账号与皮肤
                             FrmLaunchLeft?.RefreshPage(True, True)
-                            FrmLaunchRight?.RefreshWgUi()
                         End Sub)
                 Catch ex As Exception
                     RunInUi(

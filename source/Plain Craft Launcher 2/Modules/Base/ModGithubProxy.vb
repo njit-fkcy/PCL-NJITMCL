@@ -88,7 +88,7 @@ Public Module ModGithubProxy
                     Dim candidate As New TcpClient()
                     candidate.NoDelay = True
                     Dim task = candidate.ConnectAsync(ip, 443)
-                    If task.Wait(3000) AndAlso candidate.Connected Then
+                    If task.Wait(9000) AndAlso candidate.Connected Then
                         upstream = candidate
                         used = ip
                         Exit For

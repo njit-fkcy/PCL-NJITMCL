@@ -74,7 +74,7 @@ Public Class PageLoginAuthSkin
         Settings.Set("CacheAuthAccess", "")
         Settings.Set("CacheAuthUuid", "")
         Settings.Set("CacheAuthName", "")
-        '同步清除 MUA 登录标记，否则组网/整合包仍会被当成已登录放行
+        '同步清除 MUA 登录标记，否则联机/整合包仍会被当成已登录放行
         Settings.Set("MuaLoggedIn", False)
         McLoginAuthLoader.Input = Nothing '防止因为输入的用户名密码相同，直接使用了上次登录的加载器结果
         FrmLaunchLeft.RefreshPage(False, True)
