@@ -15,19 +15,22 @@ Public Module ModUpdate
         RunInThread(Sub() UpdateCheck(True))
     End Sub
 
+    ''' <summary>当前是否为强制更新：不询问是否更新，下载完成后自动重启替换。</summary>
+    Private ForceUpdating As Boolean = False
+
     ''' <summary>
-    ''' 启动时静默检查更新（可在设置项 SystemUpdateCheck 中关闭）。
+    ''' 启动时静默检查更新。
+    ''' 强制更新不受 SystemUpdateCheck 影响：关闭了自动检查的用户也必须收到。
     ''' </summary>
     Public Sub UpdateCheckOnStartup()
-        If Not Settings.Get(Of Boolean)("SystemUpdateCheck") Then Return
         RunInThread(
         Sub()
             Thread.Sleep(4000)
-            UpdateCheck(False)
+            UpdateCheck(False, RespectSetting:=True)
         End Sub)
     End Sub
 
-    Private Sub UpdateCheck(ShowResult As Boolean)
+    Private Sub UpdateCheck(ShowResult As Boolean, Optional RespectSetting As Boolean = False)
         Try
             Dim Json As JObject = NetRequestByClientRetry(UpdateManifestUrl, RequireJson:=True).DeserializeJson()
             Dim NewCode As Integer = If(Json("versionCode") Is Nothing, 0, Json("versionCode").ToObject(Of Integer)())
@@ -38,6 +41,8 @@ Public Module ModUpdate
             Dim VersionName As String = If(Json("version")?.ToString(), "")
             Dim Changelog As String = If(Json("changelog")?.ToString(), "（无更新说明）")
             Dim IsForce As Boolean = Equals(Json("force")?.ToObject(Of Boolean)(), True)
+            '关闭自动检查的用户只接收强制更新
+            If RespectSetting AndAlso Not IsForce AndAlso Not Settings.Get(Of Boolean)("SystemUpdateCheck") Then Return
             Dim Files As JArray = TryCast(Json("files"), JArray)
             Dim UseFiles As Boolean = Files IsNot Nothing AndAlso Files.Count > 0
             '优先整包更新；清单保留 files 供旧版本客户端使用
@@ -51,18 +56,25 @@ Public Module ModUpdate
             Logger.Info($"发现新版本：{VersionName}（{NewCode}），当前 {VersionBaseName}（{VersionCode}）")
             RunInUi(
             Sub()
-                Dim Result As Integer = MyMsgBox(
-                    $"发现新版本 {VersionName}（当前 {VersionBaseName}）{vbCrLf}{vbCrLf}{Changelog}{vbCrLf}{vbCrLf}是否立即更新？",
-                    "发现更新", "立即更新", "稍后")
-                If Result = 1 OrElse IsForce Then
-                    If UsePackage Then
-                        RunInThread(Sub() UpdateDownloadAndInstallPackage(Package))
-                    ElseIf UseFiles Then
-                        RunInThread(Sub() UpdateDownloadAndInstallFiles(Files))
-                    Else
-                        '旧格式清单：整包只有一个 exe
-                        RunInThread(Sub() UpdateDownloadAndInstall(LegacyUrl, If(Json("sha256")?.ToString(), "")))
-                    End If
+                ForceUpdating = IsForce
+                If IsForce Then
+                    '强制更新：不提供跳过，下载完成后自动重启替换
+                    MyMsgBox(
+                        $"本次更新为强制更新，需要更新到 {VersionName}（当前 {VersionBaseName}）。{vbCrLf}{vbCrLf}{Changelog}{vbCrLf}{vbCrLf}点击「开始更新」后将自动下载，并在完成后重启启动器。",
+                        "强制更新", "开始更新")
+                Else
+                    Dim Result As Integer = MyMsgBox(
+                        $"发现新版本 {VersionName}（当前 {VersionBaseName}）{vbCrLf}{vbCrLf}{Changelog}{vbCrLf}{vbCrLf}是否立即更新？",
+                        "发现更新", "立即更新", "稍后")
+                    If Result <> 1 Then Return
+                End If
+                If UsePackage Then
+                    RunInThread(Sub() UpdateDownloadAndInstallPackage(Package))
+                ElseIf UseFiles Then
+                    RunInThread(Sub() UpdateDownloadAndInstallFiles(Files))
+                Else
+                    '旧格式清单：整包只有一个 exe
+                    RunInThread(Sub() UpdateDownloadAndInstall(LegacyUrl, If(Json("sha256")?.ToString(), "")))
                 End If
             End Sub)
         Catch ex As Exception
@@ -85,6 +97,12 @@ Public Module ModUpdate
             Logger.Info($"更新包已下载：{Target}（{New FileInfo(Target).Length} 字节）")
             RunInUi(
             Sub()
+                If ForceUpdating Then
+                    Hint("更新已下载完成，正在重启……")
+                    Process.Start(Target, $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{Target}"" True")
+                    FormMain.EndProgramForce(ProcessReturnValues.TaskDone)
+                    Return
+                End If
                 If MyMsgBox("更新已下载完成，启动器将重启并完成替换。", "准备更新", "立即重启", "取消") = 1 Then
                     ' 用新版本进程接管替换：--update <旧PID> <旧路径> <新路径> <是否重启>
                     Process.Start(Target, $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{Target}"" True")
@@ -93,7 +111,12 @@ Public Module ModUpdate
             End Sub)
         Catch ex As Exception
             Logger.Error(ex, "下载更新失败")
-            RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
+            If ForceUpdating Then
+                RunInUi(Sub() Hint("强制更新失败：" & ex.Message &
+                    "。请检查网络后重启启动器重试，或到官网下载完整包覆盖", HintType.Red))
+            Else
+                RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
+            End If
         End Try
     End Sub
 
@@ -225,6 +248,12 @@ Public Module ModUpdate
             Logger.Info($"更新文件已准备：{Plan.Count} 个，更新进程 {UpdaterExe}")
             RunInUi(
             Sub()
+                If ForceUpdating Then
+                    Hint("更新已下载完成，正在重启……")
+                    Process.Start(UpdaterExe, $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PlanFile}"" True")
+                    FormMain.EndProgramForce(ProcessReturnValues.TaskDone)
+                    Return
+                End If
                 If MyMsgBox("更新已下载完成，启动器将重启并完成替换。", "准备更新", "立即重启", "取消") = 1 Then
                     ' 用新版本进程接管替换：--update <旧PID> <旧路径> <替换清单> <是否重启>
                     Process.Start(UpdaterExe, $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PlanFile}"" True")
@@ -233,7 +262,12 @@ Public Module ModUpdate
             End Sub)
         Catch ex As Exception
             Logger.Error(ex, "下载更新失败")
-            RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
+            If ForceUpdating Then
+                RunInUi(Sub() Hint("强制更新失败：" & ex.Message &
+                    "。请检查网络后重启启动器重试，或到官网下载完整包覆盖", HintType.Red))
+            Else
+                RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
+            End If
         End Try
     End Sub
 
@@ -318,6 +352,12 @@ Public Module ModUpdate
             Logger.Info($"整包更新已准备：{Plan.Count} 个文件")
             RunInUi(
             Sub()
+                If ForceUpdating Then
+                    Hint("更新已下载完成，正在重启……")
+                    Process.Start(UpdaterExe, $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PlanFile}"" True")
+                    FormMain.EndProgramForce(ProcessReturnValues.TaskDone)
+                    Return
+                End If
                 If MyMsgBox("更新已下载完成，启动器将重启并完成替换。", "准备更新", "立即重启", "取消") = 1 Then
                     Process.Start(UpdaterExe, $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PlanFile}"" True")
                     FormMain.EndProgramForce(ProcessReturnValues.TaskDone)
@@ -325,7 +365,12 @@ Public Module ModUpdate
             End Sub)
         Catch ex As Exception
             Logger.Error(ex, "下载更新失败")
-            RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
+            If ForceUpdating Then
+                RunInUi(Sub() Hint("强制更新失败：" & ex.Message &
+                    "。请检查网络后重启启动器重试，或到官网下载完整包覆盖", HintType.Red))
+            Else
+                RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
+            End If
         End Try
     End Sub
 

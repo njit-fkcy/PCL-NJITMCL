@@ -13,20 +13,78 @@ Public Class PageLaunchRight
         PanLog.Visibility = ModeDebug.ToVisibility
         RefreshSocialMode()
         RefreshDeviceAuth()
+        '社团生活面板加载完成后同步「活动签到」提示卡片
+        If PanClubLifeBody IsNot Nothing Then
+            AddHandler PanClubLifeBody.CheckinAvailableChanged, AddressOf OnCheckinAvailableChanged
+            OnCheckinAvailableChanged(PanClubLifeBody.CheckinItems)
+        End If
+    End Sub
+
+    ''' <summary>刷新启动页「活动签到」提示卡片；没有可签到的活动时整卡收起。</summary>
+    Private Sub OnCheckinAvailableChanged(Items As JArray)
+        If PanCheckinNotice Is Nothing OrElse PanCheckinNoticeList Is Nothing Then Return
+        PanCheckinNoticeList.Children.Clear()
+        If Items Is Nothing OrElse Items.Count = 0 Then
+            PanCheckinNotice.Visibility = System.Windows.Visibility.Collapsed
+            Return
+        End If
+        PanCheckinNotice.Visibility = System.Windows.Visibility.Visible
+        For Each Token As JToken In Items
+            Dim Item As JObject = TryCast(Token, JObject)
+            If Item Is Nothing Then Continue For
+            Dim Row As New Grid With {.Margin = New Thickness(0, 0, 0, 10)}
+            Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+            Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
+            Dim Info As New StackPanel With {.VerticalAlignment = VerticalAlignment.Center}
+            Info.Children.Add(New TextBlock With {
+                .Text = If(Item("title")?.ToString(), "社团活动"),
+                .FontSize = 13, .FontWeight = FontWeights.SemiBold,
+                .Foreground = SocialBrush(SocialBlue), .TextWrapping = TextWrapping.Wrap})
+            Info.Children.Add(New TextBlock With {
+                .Text = "正在签到 · 截止 " & FormatCheckinDeadline(Item("checkinDeadline")),
+                .FontSize = 11.5, .Opacity = 0.6, .Margin = New Thickness(0, 3, 0, 0)})
+            Grid.SetColumn(Info, 0)
+            Row.Children.Add(Info)
+            Dim BtnCheckin As New MyButton With {
+                .Text = "立即签到", .Height = 28, .MinWidth = 96,
+                .VerticalAlignment = VerticalAlignment.Center,
+                .ColorType = MyButton.ColorState.Highlight}
+            Dim EventId As String = If(Item("id")?.ToString(), "")
+            Dim EventTitle As String = If(Item("title")?.ToString(), "")
+            AddHandler BtnCheckin.Click,
+                Sub() If PanClubLifeBody IsNot Nothing Then PanClubLifeBody.OpenCheckin(EventId, EventTitle)
+            Grid.SetColumn(BtnCheckin, 1)
+            Row.Children.Add(BtnCheckin)
+            PanCheckinNoticeList.Children.Add(Row)
+        Next
+    End Sub
+
+    Private Function FormatCheckinDeadline(Token As JToken) As String
+        Dim Seconds As Long = 0L
+        If Token IsNot Nothing AndAlso Token.Type <> JTokenType.Null Then Long.TryParse(Token.ToString(), Seconds)
+        If Seconds <= 0 Then Return "不限时"
+        Return DateTimeOffset.FromUnixTimeSeconds(Seconds).ToLocalTime().ToString("MM-dd HH:mm")
+    End Function
+
+    ''' <summary>每次进入启动页时同步授权行，避免在「我的」页退出账号后仍显示已授权。</summary>
+    Private Sub PageEnterHandler() Handles Me.PageEnter
+        RefreshDeviceAuth()
     End Sub
 
     ''' <summary>按设备令牌状态刷新社团生活卡片上的授权行。</summary>
     Public Sub RefreshDeviceAuth()
         If LabDeviceAuth Is Nothing OrElse BtnDeviceAuth Is Nothing Then Return
         If ModSocial.IsLoggedIn() Then
-            LabDeviceAuth.Text = "已授权：" & If(ModSocial.SocialName, "社团账号")
-            BtnDeviceAuth.Text = "已授权"
-            BtnDeviceAuth.IsEnabled = False
+            '已授权时账号统一由下方社团生活面板显示，这里整行收起，避免同一个账号重复出现
+            PanDeviceAuth.Visibility = System.Windows.Visibility.Collapsed
         Else
+            PanDeviceAuth.Visibility = System.Windows.Visibility.Visible
             LabDeviceAuth.Text = "请先官网授权启动器，才可以使用社团功能"
             BtnDeviceAuth.Text = "授权启动器"
             BtnDeviceAuth.IsEnabled = Not DeviceAuthRunning
         End If
+        '授权状态变化后同步顶级导航的未读消息数
+        If FrmMain IsNot Nothing Then FrmMain.RefreshMessageBadge()
     End Sub
 
     ''' <summary>
@@ -45,59 +103,30 @@ Public Class PageLaunchRight
         RunInNewThread(
         Sub()
             Try
-                '1. 有正版登录态：直接授权，同时把该正版身份绑定到网站账号
-                Dim Authorized As Boolean = False
-                Try
-                    Authorized = ModSocial.AuthorizeWithMojang()
-                Catch ex As Exception
-                    Logger.Warn(ex, "正版直授权失败，改用设备码")
-                End Try
-                If Authorized Then
-                    RunInUi(
-                    Sub()
+                '统一流程：正版登录态优先直授权，没有正版才申请设备码
+                Dim Authorized As Boolean = ModSocial.AuthorizeLauncher(
+                    "NJIT MCL 启动页",
+                    Sub(UserCode As String)
+                        RunInUi(
+                        Sub()
+                            Try
+                                Clipboard.SetText(UserCode)
+                            Catch
+                            End Try
+                            OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
+                            Hint("授权码 " & UserCode & " 已复制，请在网页登录后粘贴确认", HintType.Green)
+                        End Sub)
+                    End Sub)
+                RunInUi(
+                Sub()
+                    If Authorized Then
                         Hint("已授权启动器：" & ModSocial.SocialName, HintType.Green)
                         RefreshDeviceAuth()
                         If PanClubLifeBody IsNot Nothing Then PanClubLifeBody.RefreshData()
-                    End Sub)
-                    Return
-                End If
-                '2. 没有正版登录态：申请设备码，由用户在官网登录后确认
-                Dim Result As JObject = ModSocial.RequestDeviceCode("NJIT MCL 启动页")
-                Dim DeviceValue As String = If(Result("deviceCode")?.ToString(), "")
-                Dim UserCode As String = If(Result("userCode")?.ToString(), "")
-                RunInUi(
-                Sub()
-                    Try
-                        Clipboard.SetText(UserCode)
-                    Catch
-                    End Try
-                    OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
-                    Hint("授权码 " & UserCode & " 已复制，请在网页登录后粘贴确认", HintType.Green)
-                End Sub)
-                Dim Interval As Integer = If(Result("interval")?.ToObject(Of Integer)(), 3) * 1000
-                Dim Deadline As Date = Date.Now.AddSeconds(If(Result("expiresIn")?.ToObject(Of Integer)(), 600))
-                While Date.Now < Deadline
-                    Thread.Sleep(Interval)
-                    Dim Poll As JObject = Nothing
-                    Try
-                        Poll = ModSocial.PollDevice(DeviceValue)
-                    Catch ex As Exception
-                        '单次轮询网络抖动不终止流程，继续下一轮
-                        Logger.Warn(ex, "设备码轮询失败，继续等待")
-                        Continue While
-                    End Try
-                    If If(Poll("status")?.ToString(), "") = "approved" Then
-                        ModSocial.ApplyDeviceToken(Poll)
-                        RunInUi(
-                        Sub()
-                            Hint("已授权启动器：" & ModSocial.SocialName, HintType.Green)
-                            RefreshDeviceAuth()
-                            If PanClubLifeBody IsNot Nothing Then PanClubLifeBody.RefreshData()
-                        End Sub)
-                        Return
+                    Else
+                        Hint("授权码已过期，请重新点击「授权启动器」", HintType.Red)
                     End If
-                End While
-                RunInUi(Sub() Hint("授权码已过期，请重新点击「授权启动器」", HintType.Red))
+                End Sub)
             Catch ex As Exception
                 Logger.Warn(ex, "授权启动器失败")
                 RunInUi(Sub() Hint("授权失败：" & ex.Message, HintType.Red))

@@ -35,66 +35,8 @@ Public Class PageLinkFriend
         RefreshAll()
     End Sub
 
-    Private DevicePolling As Boolean = False
-
-    ''' <summary>申请设备码并轮询授权结果；用户在官网确认后自动完成登录。</summary>
-    Public Sub StartDeviceLogin(sender As Object, e As MouseButtonEventArgs)
-        If DevicePolling Then Return
-        DevicePolling = True
-        LabAccount.Text = "正在申请设备码……"
-        RunInNewThread(
-        Sub()
-            Try
-                Dim Result As JObject = ModSocial.RequestDeviceCode("NJIT MCL")
-                Dim DeviceValue As String = If(Result("deviceCode")?.ToString(), "")
-                RunInUi(
-                Sub()
-                    PanDeviceCode.Visibility = Visibility.Visible
-                    LabDeviceCode.Text = If(Result("userCode")?.ToString(), "")
-                    LabAccount.Text = "请在浏览器打开授权页，登录社团官网（正版或 MUA）后输入上方设备码并确认。"
-                End Sub)
-                OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
-                Dim Interval As Integer = If(Result("interval")?.ToObject(Of Integer)(), 3) * 1000
-                Dim Deadline As Date = Date.Now.AddSeconds(If(Result("expiresIn")?.ToObject(Of Integer)(), 600))
-                While Date.Now < Deadline
-                    Thread.Sleep(Interval)
-                    Dim Poll As JObject = Nothing
-                    Try
-                        Poll = ModSocial.PollDevice(DeviceValue)
-                    Catch ex As Exception
-                        '单次轮询网络抖动不终止流程，继续下一轮
-                        Logger.Warn(ex, "设备码轮询失败，继续等待")
-                        Continue While
-                    End Try
-                    If If(Poll("status")?.ToString(), "") = "approved" Then
-                        ModSocial.ApplyDeviceToken(Poll)
-                        RunInUi(
-                        Sub()
-                            PanDeviceCode.Visibility = Visibility.Collapsed
-                            LabDeviceCode.Text = ""
-                            LabAccount.Text = "已登录社团官网：" & ModSocial.SocialName
-                            RefreshAll()
-                        End Sub)
-                        Return
-                    End If
-                End While
-                RunInUi(Sub() LabAccount.Text = "设备码已过期，请重新点「登录社团官网」。")
-            Catch ex As Exception
-                Logger.Warn(ex, "设备码登录失败")
-                RunInUi(Sub() LabAccount.Text = ex.Message)
-            Finally
-                DevicePolling = False
-            End Try
-        End Sub, "DeviceLogin")
-    End Sub
-
-    Public Sub CopyDeviceCode(sender As Object, e As MouseButtonEventArgs)
-        If LabDeviceCode.Text <> "" Then Clipboard.SetText(LabDeviceCode.Text)
-    End Sub
-
-    Public Sub OpenDevicePage(sender As Object, e As MouseButtonEventArgs)
-        OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
-    End Sub
+    '防止 20 秒定时刷新与手动刷新并发堆积请求
+    Private Refreshing As Boolean = False
 
     Private Sub PageExitHandler() Handles Me.PageExit
         If FriendTimer IsNot Nothing Then FriendTimer.Stop()
@@ -116,6 +58,8 @@ Public Class PageLinkFriend
     End Sub
 
     Private Sub RefreshAll(Optional Silent As Boolean = False)
+        If Refreshing Then Return
+        Refreshing = True
         If Not Silent Then LabStatus.Text = "正在连接服务器……"
         RunInNewThread(
         Sub()
@@ -125,15 +69,21 @@ Public Class PageLinkFriend
                 RunInUi(
                 Sub()
                     Render(Data)
-                    LabStatus.Text = "已连接服务器"
-                    LabAccount.Text = "已登录社团官网：" & ModSocial.SocialName
+                    LabStatus.Text = "已连接社团服务器"
+                    '好友申请数随手同步到侧边栏，不额外发请求
+                    Dim Incoming As JArray = TryCast(Data("incoming"), JArray)
+                    If FrmMain IsNot Nothing AndAlso Incoming IsNot Nothing Then
+                        FrmMain.ApplyFriendRequests(Incoming.Count)
+                    End If
                 End Sub)
             Catch ex As Exception
                 Logger.Warn(ex, "加载好友失败")
                 RunInUi(
                 Sub()
-                    If Not Silent Then LabStatus.Text = ex.Message
+                    If Not Silent Then LabStatus.Text = ModSocial.FriendlyError(ex)
                 End Sub)
+            Finally
+                Refreshing = False
             End Try
         End Sub, "SocialFriends")
     End Sub
@@ -145,7 +95,7 @@ Public Class PageLinkFriend
 
         Dim Incoming As JArray = TryCast(Data("incoming"), JArray)
         If Incoming IsNot Nothing AndAlso Incoming.Count > 0 Then
-            PanIncoming.Children.Add(SocialLabel($"待处理申请（{Incoming.Count}）"))
+            PanIncoming.Children.Add(SocialSectionTitle($"待处理申请（{Incoming.Count}）"))
             For Each Item As JToken In Incoming
                 PanIncoming.Children.Add(BuildIncomingRow(TryCast(Item, JObject)))
             Next
@@ -155,7 +105,7 @@ Public Class PageLinkFriend
         If Friends Is Nothing OrElse Friends.Count = 0 Then
             PanFriends.Children.Add(SocialLabel("还没有好友，先在上方搜索昵称"))
         Else
-            PanFriends.Children.Add(SocialLabel($"好友（{Friends.Count}）"))
+            PanFriends.Children.Add(SocialSectionTitle($"好友（{Friends.Count}）"))
             For Each Item As JToken In Friends
                 PanFriends.Children.Add(BuildFriendRow(TryCast(Item, JObject)))
             Next
@@ -163,7 +113,7 @@ Public Class PageLinkFriend
 
         Dim Blocked As JArray = TryCast(Data("blocked"), JArray)
         If Blocked IsNot Nothing AndAlso Blocked.Count > 0 Then
-            PanBlocked.Children.Add(SocialLabel($"黑名单（{Blocked.Count}）"))
+            PanBlocked.Children.Add(SocialSectionTitle($"黑名单（{Blocked.Count}）"))
             For Each Item As JToken In Blocked
                 PanBlocked.Children.Add(BuildBlockedRow(TryCast(Item, JObject)))
             Next
@@ -184,15 +134,15 @@ Public Class PageLinkFriend
 
     Private Function BuildFriendRow(Item As JObject) As FrameworkElement
         If Item Is Nothing Then Return New Grid()
-        Dim Row As New Grid With {.Height = 44, .Margin = New Thickness(0, 0, 0, 2)}
+        Dim Row As New Grid With {.Height = 40}
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
         Dim Name As String = ItemName(Item)
         Dim Person As New StackPanel With {
             .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
-        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 32, Name))
+        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 30, Name))
         Person.Children.Add(New TextBlock With {
-            .Text = Name, .FontSize = 13, .Margin = New Thickness(8, 0, 0, 0),
+            .Text = Name, .FontSize = 12.5, .Margin = New Thickness(9, 0, 0, 0),
             .VerticalAlignment = VerticalAlignment.Center, .TextTrimming = TextTrimming.CharacterEllipsis})
         Grid.SetColumn(Person, 0)
         Row.Children.Add(Person)
@@ -200,21 +150,31 @@ Public Class PageLinkFriend
         Dim Target As String = ItemAccountId(Item)
         Dim Actions As New StackPanel With {
             .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
+        Dim BtnMessage As New MyButton With {
+            .Text = "发消息", .Height = 24, .MinWidth = 64,
+            .ColorType = MyButton.ColorState.Highlight}
+        AddHandler BtnMessage.Click,
+            Sub()
+                PageLinkMessage.PendingPeerId = Target
+                PageLinkMessage.PendingPeerName = Name
+                FrmMain.PageChange(FormMain.PageType.Link, FormMain.PageSubType.LinkMessage)
+            End Sub
         Dim BtnRemove As New MyButton With {
-            .Text = "删除", .Height = 26, .MinWidth = 64}
+            .Text = "删除", .Height = 24, .MinWidth = 56, .Margin = New Thickness(6, 0, 0, 0)}
         AddHandler BtnRemove.Click,
             Sub()
                 If MyMsgBox($"确定删除好友「{Name}」吗？", "删除好友", "删除", "取消") <> 1 Then Return
                 RunSocialAction(Sub() ModSocial.RemoveFriend(Target), "已删除好友")
             End Sub
         Dim BtnBlock As New MyButton With {
-            .Text = "拉黑", .Height = 26, .MinWidth = 64, .Margin = New Thickness(8, 0, 0, 0)}
+            .Text = "拉黑", .Height = 24, .MinWidth = 56, .Margin = New Thickness(6, 0, 0, 0)}
         AddHandler BtnBlock.Click,
             Sub()
                 If MyMsgBox($"拉黑「{Name}」后，双方好友关系会解除，对方无法再向你发起好友申请。确定吗？",
                             "拉黑", "拉黑", "取消") <> 1 Then Return
                 RunSocialAction(Sub() ModSocial.BlockFriend(Target), "已拉黑")
             End Sub
+        Actions.Children.Add(BtnMessage)
         Actions.Children.Add(BtnRemove)
         Actions.Children.Add(BtnBlock)
         Grid.SetColumn(Actions, 1)
@@ -224,15 +184,15 @@ Public Class PageLinkFriend
 
     Private Function BuildIncomingRow(Item As JObject) As FrameworkElement
         If Item Is Nothing Then Return New Grid()
-        Dim Row As New Grid With {.Height = 44, .Margin = New Thickness(0, 0, 0, 2)}
+        Dim Row As New Grid With {.Height = 40}
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
         Dim Name As String = ItemName(Item)
         Dim Person As New StackPanel With {
             .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
-        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 32, Name))
+        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 30, Name))
         Person.Children.Add(New TextBlock With {
-            .Text = Name, .FontSize = 13, .Margin = New Thickness(8, 0, 0, 0),
+            .Text = Name, .FontSize = 12.5, .Margin = New Thickness(9, 0, 0, 0),
             .VerticalAlignment = VerticalAlignment.Center})
         Grid.SetColumn(Person, 0)
         Row.Children.Add(Person)
@@ -241,11 +201,11 @@ Public Class PageLinkFriend
         Dim Actions As New StackPanel With {
             .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
         Dim BtnAccept As New MyButton With {
-            .Text = "同意", .Height = 26, .MinWidth = 64, .ColorType = MyButton.ColorState.Highlight}
+            .Text = "同意", .Height = 24, .MinWidth = 56, .ColorType = MyButton.ColorState.Highlight}
         Dim BtnReject As New MyButton With {
-            .Text = "拒绝", .Height = 26, .MinWidth = 64, .Margin = New Thickness(8, 0, 0, 0)}
+            .Text = "拒绝", .Height = 24, .MinWidth = 56, .Margin = New Thickness(6, 0, 0, 0)}
         Dim BtnBlock As New MyButton With {
-            .Text = "拉黑", .Height = 26, .MinWidth = 64, .Margin = New Thickness(8, 0, 0, 0)}
+            .Text = "拉黑", .Height = 24, .MinWidth = 56, .Margin = New Thickness(6, 0, 0, 0)}
         AddHandler BtnAccept.Click, Sub() RunSocialAction(Sub() ModSocial.RespondFriend(Target, True), "已添加好友")
         AddHandler BtnReject.Click, Sub() RunSocialAction(Sub() ModSocial.RespondFriend(Target, False), "已拒绝申请")
         AddHandler BtnBlock.Click,
@@ -264,22 +224,22 @@ Public Class PageLinkFriend
 
     Private Function BuildBlockedRow(Item As JObject) As FrameworkElement
         If Item Is Nothing Then Return New Grid()
-        Dim Row As New Grid With {.Height = 44, .Margin = New Thickness(0, 0, 0, 2)}
+        Dim Row As New Grid With {.Height = 40}
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
         Dim Name As String = ItemName(Item)
         Dim Person As New StackPanel With {
             .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
-        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 32, Name))
+        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 30, Name))
         Person.Children.Add(New TextBlock With {
-            .Text = Name, .FontSize = 13, .Opacity = 0.6, .Margin = New Thickness(8, 0, 0, 0),
+            .Text = Name, .FontSize = 12.5, .Opacity = 0.6, .Margin = New Thickness(9, 0, 0, 0),
             .VerticalAlignment = VerticalAlignment.Center})
         Grid.SetColumn(Person, 0)
         Row.Children.Add(Person)
 
         Dim Target As String = ItemAccountId(Item)
         Dim BtnUnblock As New MyButton With {
-            .Text = "解除拉黑", .Height = 26, .MinWidth = 88, .VerticalAlignment = VerticalAlignment.Center}
+            .Text = "解除拉黑", .Height = 24, .MinWidth = 80, .VerticalAlignment = VerticalAlignment.Center}
         AddHandler BtnUnblock.Click,
             Sub() RunSocialAction(Sub() ModSocial.UnblockFriend(Target), "已解除拉黑")
         Grid.SetColumn(BtnUnblock, 1)
@@ -289,24 +249,26 @@ Public Class PageLinkFriend
 
     Private Function BuildSearchRow(Item As JObject) As FrameworkElement
         If Item Is Nothing Then Return New Grid()
-        Dim Row As New Grid With {.Height = 44, .Margin = New Thickness(0, 0, 0, 2)}
+        Dim Row As New Grid With {.Height = 40}
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
         Dim Name As String = ItemName(Item)
         Dim Person As New StackPanel With {
             .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
-        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 32, Name))
+        Person.Children.Add(SocialAvatar(Item("avatarUrl")?.ToString(), 30, Name))
         Person.Children.Add(New TextBlock With {
-            .Text = Name, .FontSize = 13, .Margin = New Thickness(8, 0, 0, 0),
+            .Text = Name, .FontSize = 12.5, .Margin = New Thickness(9, 0, 0, 0),
             .VerticalAlignment = VerticalAlignment.Center})
         Grid.SetColumn(Person, 0)
         Row.Children.Add(Person)
 
         Dim Btn As New MyButton With {
-            .Text = "加好友", .Height = 26, .MinWidth = 76, .VerticalAlignment = VerticalAlignment.Center,
+            .Text = "加好友", .Height = 24, .MinWidth = 72, .VerticalAlignment = VerticalAlignment.Center,
             .ColorType = MyButton.ColorState.Highlight}
         AddHandler Btn.Click,
             Sub()
+                If SocialBusy Then Return
+                SocialBusy = True
                 RunInNewThread(
                 Sub()
                     Try
@@ -318,7 +280,9 @@ Public Class PageLinkFriend
                             RefreshAll()
                         End Sub)
                     Catch ex As Exception
-                        RunInUi(Sub() Hint(ex.Message, HintType.Red))
+                        RunInUi(Sub() Hint(ModSocial.FriendlyError(ex), HintType.Red))
+                    Finally
+                        SocialBusy = False
                     End Try
                 End Sub, "SocialAddFriend")
             End Sub
@@ -328,9 +292,13 @@ Public Class PageLinkFriend
     End Function
 
     ''' <summary>
-    ''' 统一的异步社交操作：执行、提示、刷新。
+    ''' 统一的异步社交操作：执行、提示、刷新。同一时刻只允许一个社交操作，避免连点重复提交。
     ''' </summary>
+    Private SocialBusy As Boolean = False
+
     Private Sub RunSocialAction(Work As Action, SuccessText As String)
+        If SocialBusy Then Return
+        SocialBusy = True
         RunInNewThread(
         Sub()
             Try
@@ -341,7 +309,9 @@ Public Class PageLinkFriend
                     RefreshAll()
                 End Sub)
             Catch ex As Exception
-                RunInUi(Sub() Hint(ex.Message, HintType.Red))
+                RunInUi(Sub() Hint(ModSocial.FriendlyError(ex), HintType.Red))
+            Finally
+                SocialBusy = False
             End Try
         End Sub, "SocialFriendAction")
     End Sub
@@ -365,7 +335,7 @@ Public Class PageLinkFriend
                         PanSearch.Children.Add(SocialLabel("没有找到匹配的昵称"))
                         Return
                     End If
-                    PanSearch.Children.Add(SocialLabel($"搜索结果（{Results.Count}）"))
+                    PanSearch.Children.Add(SocialSectionTitle($"搜索结果（{Results.Count}）"))
                     For Each Item As JToken In Results
                         PanSearch.Children.Add(BuildSearchRow(TryCast(Item, JObject)))
                     Next
@@ -374,7 +344,7 @@ Public Class PageLinkFriend
                 RunInUi(
                 Sub()
                     PanSearch.Children.Clear()
-                    PanSearch.Children.Add(SocialLabel(ex.Message))
+                    PanSearch.Children.Add(SocialLabel(ModSocial.FriendlyError(ex)))
                 End Sub)
             End Try
         End Sub, "SocialSearch")

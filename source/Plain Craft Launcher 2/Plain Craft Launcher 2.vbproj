@@ -339,6 +339,9 @@
     <Compile Include="Pages\PageLink\PageLinkFriend.xaml.vb">
       <DependentUpon>PageLinkFriend.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Pages\PageLink\PageLinkMessage.xaml.vb">
+      <DependentUpon>PageLinkMessage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Pages\PageOther\PageOtherHelpDetail.xaml.vb">
       <DependentUpon>PageOtherHelpDetail.xaml</DependentUpon>
     </Compile>
@@ -626,6 +629,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="Pages\PageLink\PageLinkFriend.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageLink\PageLinkMessage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

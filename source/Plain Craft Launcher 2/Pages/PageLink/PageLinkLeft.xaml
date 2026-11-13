@@ -15,5 +15,8 @@
         <local:MyListItem x:Name="ItemFriend" IsScaleAnimationEnabled="False" Type="RadioBox"
                           Tag="3" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="好友"
                           LogoScale="0.92" Logo="M384 128a160 160 0 1 1 0 320 160 160 0 0 1 0-320z M64 896c0-160 128-288 288-288s288 128 288 288v64H64z M768 192a144 144 0 1 1 0 288 144 144 0 0 1 0-288z M736 480c112 0 208 88 216 200l8 280H736z" />
+        <local:MyListItem x:Name="ItemMessage" IsScaleAnimationEnabled="False" Type="RadioBox"
+                          Tag="4" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="消息"
+                          LogoScale="0.92" Logo="M128 96h768a64 64 0 0 1 64 64v448a64 64 0 0 1-64 64H448L224 896V672H128a64 64 0 0 1-64-64V160a64 64 0 0 1 64-64z M288 320h448v64H288z M288 480h288v64H288z" />
     </StackPanel>
 </local:MyPageLeft>

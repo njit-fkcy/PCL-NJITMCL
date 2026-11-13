@@ -16,8 +16,16 @@ Public Class PageLinkMine
         RefreshAll()
     End Sub
 
+    '授权进行中，避免连点重复申请设备码
+    Private AuthRunning As Boolean = False
+
     Private Sub RefreshAll()
         PanContent.Children.Clear()
+        If Not ModSocial.IsLoggedIn() Then
+            PanContent.Children.Add(SocialLabel("尚未授权社团账号。授权后可以查看资料、添加好友与使用联机。"))
+            PanContent.Children.Add(BuildActions())
+            Return
+        End If
         PanContent.Children.Add(SocialLabel("正在读取账号资料……"))
         RunInNewThread(
         Sub()
@@ -30,7 +38,7 @@ Public Class PageLinkMine
                 RunInUi(
                 Sub()
                     PanContent.Children.Clear()
-                    PanContent.Children.Add(SocialLabel(ex.Message))
+                    PanContent.Children.Add(SocialLabel(ModSocial.FriendlyError(ex)))
                     PanContent.Children.Add(BuildActions())
                 End Sub)
             End Try
@@ -72,12 +80,12 @@ Public Class PageLinkMine
                 Dim Label As String = If(Provider = "mojang", "正版角色",
                                       If(Provider = "mua", "MUA 角色", Provider))
                 Tags.Children.Add(New Border With {
-                    .CornerRadius = New CornerRadius(3), .Padding = New Thickness(8, 2, 8, 2),
+                    .CornerRadius = New CornerRadius(8), .Padding = New Thickness(9, 2, 9, 2),
                     .Margin = New Thickness(0, 0, 6, 0),
                     .Background = New SolidColorBrush(Color.FromArgb(22, 0, 0, 0)),
                     .Child = New TextBlock With {
                         .Text = Label & " · " & If(Item("displayName")?.ToString(), ""),
-                        .FontSize = 11, .Opacity = 0.7}})
+                        .FontSize = 11, .Opacity = 0.75}})
             Next
         End If
         If Tags.Children.Count = 0 Then
@@ -138,29 +146,82 @@ Public Class PageLinkMine
         Panel.Children.Add(BtnRefresh)
         Panel.Children.Add(BtnAvatar)
         If ModSocial.IsLoggedIn() Then
+            Dim BtnReauth As New MyButton With {
+                .Text = "重新授权", .Height = 30, .MinWidth = 100, .Margin = New Thickness(8, 0, 0, 0)}
+            AddHandler BtnReauth.Click, Sub() StartMineAuth(True)
+            Panel.Children.Add(BtnReauth)
+
             Dim BtnLogout As New MyButton With {
-                .Text = "退出联机账号", .Height = 30, .MinWidth = 112, .Margin = New Thickness(8, 0, 0, 0)}
+                .Text = "退出社团账号", .Height = 30, .MinWidth = 112, .Margin = New Thickness(8, 0, 0, 0)}
             AddHandler BtnLogout.Click,
                 Sub()
-                    If MyMsgBox("退出后需要重新用正版或 MUA 账号登录才能使用联机，确定退出吗？",
-                                "退出联机账号", "退出", "取消") <> 1 Then Return
+                    If MyMsgBox("退出后需要重新授权才能使用联机与社团生活，正在进行的房间会关闭。确定退出吗？",
+                                "退出社团账号", "退出", "取消") <> 1 Then Return
                     ModSocial.Logout()
-                    Hint("已退出联机账号", HintType.Green)
+                    Hint("已退出社团账号", HintType.Green)
                     RefreshAll()
                 End Sub
             Panel.Children.Add(BtnLogout)
         Else
             Dim BtnAuth As New MyButton With {
-                .Text = "去授权启动器", .Height = 30, .MinWidth = 112, .Margin = New Thickness(8, 0, 0, 0),
+                .Text = "授权启动器", .Height = 30, .MinWidth = 112, .Margin = New Thickness(8, 0, 0, 0),
                 .ColorType = MyButton.ColorState.Highlight}
-            AddHandler BtnAuth.Click,
-                Sub()
-                    FrmMain.PageChange(FormMain.PageType.Launch)
-                    Hint("请在「社团生活」卡片点击「授权启动器」", HintType.Blue)
-                End Sub
+            AddHandler BtnAuth.Click, Sub() StartMineAuth(False)
             Panel.Children.Add(BtnAuth)
         End If
         Return Panel
     End Function
+
+    ''' <summary>
+    ''' 与启动页同一条授权路径：正版登录态优先直授权，没有正版才申请设备码。
+    ''' Reauth 为 True 时先退出当前社团账号再授权。
+    ''' </summary>
+    Private Sub StartMineAuth(Reauth As Boolean)
+        If AuthRunning Then Return
+        If Reauth Then
+            If MyMsgBox("重新授权会先退出当前社团账号（正在进行的房间会关闭），再用正版身份（优先）或设备码重新授权。继续吗？",
+                        "重新授权", "继续", "取消") <> 1 Then Return
+            ModSocial.Logout()
+        End If
+        AuthRunning = True
+        PanContent.Children.Clear()
+        PanContent.Children.Add(SocialLabel("正在授权启动器……"))
+        RunInNewThread(
+        Sub()
+            Try
+                Dim Authorized As Boolean = ModSocial.AuthorizeLauncher(
+                    "NJIT MCL 联机页",
+                    Sub(UserCode As String)
+                        RunInUi(
+                        Sub()
+                            Try
+                                Clipboard.SetText(UserCode)
+                            Catch
+                            End Try
+                            OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
+                            Hint("授权码 " & UserCode & " 已复制，请在网页登录后粘贴确认", HintType.Green)
+                        End Sub)
+                    End Sub)
+                RunInUi(
+                Sub()
+                    AuthRunning = False
+                    If Authorized Then
+                        Hint("已授权：" & ModSocial.SocialName, HintType.Green)
+                    Else
+                        Hint("授权未完成，请重新点击「授权启动器」", HintType.Red)
+                    End If
+                    RefreshAll()
+                End Sub)
+            Catch ex As Exception
+                Logger.Warn(ex, "授权启动器失败")
+                RunInUi(
+                Sub()
+                    AuthRunning = False
+                    Hint("授权失败：" & ModSocial.FriendlyError(ex), HintType.Red)
+                    RefreshAll()
+                End Sub)
+            End Try
+        End Sub, "MineAuth")
+    End Sub
 
 End Class

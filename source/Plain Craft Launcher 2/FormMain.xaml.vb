@@ -346,9 +346,65 @@ Public Class FormMain
 
         Logger.Info($"第二阶段加载用时：{GetTimeMs() - ApplicationStartTick} ms")
     End Sub
+    '未读消息提示：每 60 秒刷新一次，数字显示在顶级导航「联机」上
+    Private MessageBadgeTimer As System.Windows.Threading.DispatcherTimer
+
+    ''' <summary>启动未读消息轮询（只启动一次）。</summary>
+    Private Sub StartMessageBadgeTimer()
+        If MessageBadgeTimer IsNot Nothing Then Return
+        RefreshMessageBadge()
+        MessageBadgeTimer = New System.Windows.Threading.DispatcherTimer With {
+            .Interval = TimeSpan.FromSeconds(60)}
+        AddHandler MessageBadgeTimer.Tick, Sub() RefreshMessageBadge()
+        MessageBadgeTimer.Start()
+    End Sub
+
+    ''' <summary>后台拉取未读消息数与好友申请数，更新顶级导航与联机侧边栏。</summary>
+    Public Sub RefreshMessageBadge()
+        RunInNewThread(
+        Sub()
+            Dim Unread As Integer = 0
+            Dim Requests As Integer = 0
+            Try
+                ModSocial.BadgeCounts(Unread, Requests)
+            Catch ex As Exception
+                Logger.Warn(ex, "刷新导航徽章失败")
+            End Try
+            RunInUi(Sub() ApplyMessageBadge(Unread, Requests))
+        End Sub, "SocialUnreadBadge")
+    End Sub
+
+    ''' <summary>把未读消息数与好友申请数写到导航和侧边栏（需要在 UI 线程调用）。</summary>
+    Public Sub ApplyMessageBadge(Unread As Integer, Requests As Integer)
+        ApplyUnreadBadge(Unread)
+        ApplyFriendRequests(Requests)
+    End Sub
+
+    ''' <summary>只更新侧边栏「好友」上的待处理申请数。</summary>
+    Public Sub ApplyFriendRequests(Requests As Integer)
+        If FrmLinkLeft IsNot Nothing AndAlso FrmLinkLeft.ItemFriend IsNot Nothing Then
+            FrmLinkLeft.ItemFriend.Title = "好友" & BadgeSuffix(Requests)
+        End If
+    End Sub
+
+    ''' <summary>只更新消息未读数（顶级「联机」+ 侧边栏「消息」），不影响好友申请数。</summary>
+    Public Sub ApplyUnreadBadge(Unread As Integer)
+        If BtnTitleSelect2 IsNot Nothing Then BtnTitleSelect2.Text = "联机" & BadgeSuffix(Unread)
+        If FrmLinkLeft IsNot Nothing AndAlso FrmLinkLeft.ItemMessage IsNot Nothing Then
+            FrmLinkLeft.ItemMessage.Title = "消息" & BadgeSuffix(Unread)
+        End If
+    End Sub
+
+    ''' <summary>徽章后缀：0 不显示，超过 99 显示 99+。</summary>
+    Private Function BadgeSuffix(Count As Integer) As String
+        If Count <= 0 Then Return ""
+        Return " (" & If(Count > 99, "99+", Count.ToString()) & ")"
+    End Function
+
     Private Sub FormMain_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         ApplicationStartTick = GetTimeMs()
         Handle = New WindowInteropHelper(Me).Handle
+        StartMessageBadgeTimer()
         '读取设置
         UpdateBackgroundAndTitleBar()
         PageSetupUI.HiddenRefresh()
@@ -1258,6 +1314,7 @@ Public Class FormMain
         LinkServer = 1
         LinkRoom = 2
         LinkFriend = 3
+        LinkMessage = 4
         OtherHelp = 0
         OtherAbout = 1
         OtherTest = 2

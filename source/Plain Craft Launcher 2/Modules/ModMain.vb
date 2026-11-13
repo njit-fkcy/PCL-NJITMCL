@@ -380,6 +380,7 @@ EndHint:
     Public FrmLinkServer As PageLinkServer
     Public FrmLinkRoom As PageLinkRoom
     Public FrmLinkFriend As PageLinkFriend
+    Public FrmLinkMessage As PageLinkMessage
 
     '下载页面声明
     Public FrmDownloadLeft As PageDownloadLeft

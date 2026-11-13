@@ -33,11 +33,18 @@ Public Class PageLinkRoom
     Private PanMyRoomCard As StackPanel
     Private PanOtherRoomList As StackPanel
     Private LabOtherRooms As TextBlock
+    '好友房间分组：房主是好友的房间单独展示
+    Private PanFriendRoomList As StackPanel
+    Private LabFriendRooms As TextBlock
+    '好友账号 ID 集合，用于把好友当房主的房间分到「好友房间」
+    Private FriendIds As New HashSet(Of String)(StringComparer.Ordinal)
     '自己房间的密码，仅保存在内存，关闭房间后清空
     Private HostPassword As String = ""
     '已加入的别人房间：房间号与密码，用于卡片显示「已加入」并保持展开
     Private JoinedRoomCode As String = ""
     Private JoinedPassword As String = ""
+    '防止 20 秒定时刷新与手动刷新并发堆积请求
+    Private Refreshing As Boolean = False
 
     Private Sub PageEnterHandler() Handles Me.PageEnter
         If Not Built Then
@@ -77,6 +84,12 @@ Public Class PageLinkRoom
         PanRoomArea.Children.Add(PanMyRoomCard)
         PanCreateForm = BuildCreateForm()
         PanRoomArea.Children.Add(PanCreateForm)
+
+        LabFriendRooms = SocialSectionTitle("好友房间")
+        LabFriendRooms.Margin = New Thickness(0, 16, 0, 0)
+        PanOtherRooms.Children.Add(LabFriendRooms)
+        PanFriendRoomList = New StackPanel
+        PanOtherRooms.Children.Add(PanFriendRoomList)
 
         LabOtherRooms = SocialSectionTitle("其他房间")
         LabOtherRooms.Margin = New Thickness(0, 16, 0, 0)
@@ -273,6 +286,8 @@ Public Class PageLinkRoom
 #Region "刷新"
 
     Private Sub RefreshAll()
+        If Refreshing Then Return
+        Refreshing = True
         LabStatus.Text = "正在连接服务器……"
         RunInNewThread(
         Sub()
@@ -280,10 +295,25 @@ Public Class PageLinkRoom
                 ModSocial.EnsureLogin()
                 Dim Relays As JObject = ModSocial.RelayList()
                 Dim Rooms As JArray = ModSocial.RoomList()
+                '好友列表只用于「好友房间」分组，失败不影响房间列表展示
+                Dim Friends As New HashSet(Of String)(StringComparer.Ordinal)
+                Try
+                    Dim FriendData As JObject = ModSocial.FriendList()
+                    Dim FriendArray As JArray = TryCast(FriendData("friends"), JArray)
+                    If FriendArray IsNot Nothing Then
+                        For Each Token As JToken In FriendArray
+                            Dim Id As String = Token?("accountId")?.ToString()
+                            If Not String.IsNullOrWhiteSpace(Id) Then Friends.Add(Id)
+                        Next
+                    End If
+                Catch ex As Exception
+                    Logger.Warn(ex, "加载好友列表失败，房间暂按其他房间显示")
+                End Try
                 RunInUi(
                 Sub()
                     RelayNodes = TryCast(Relays("relays"), JArray)
                     UpdatePublicButton()
+                    FriendIds = Friends
                     RoomsCache = Rooms
                     RenderRooms()
                     '房间还在但本地中继进程没了时给出明确提示，避免房主以为还能连
@@ -293,13 +323,16 @@ Public Class PageLinkRoom
                 End Sub)
             Catch ex As Exception
                 Logger.Warn(ex, "加载房间失败")
-                RunInUi(Sub() LabStatus.Text = ex.Message)
+                RunInUi(Sub() LabStatus.Text = ModSocial.FriendlyError(ex))
+            Finally
+                Refreshing = False
             End Try
         End Sub, "SocialRooms")
     End Sub
 
     Private Sub RenderRooms()
         PanMyRoomCard.Children.Clear()
+        PanFriendRoomList.Children.Clear()
         PanOtherRoomList.Children.Clear()
         Dim Rooms As JArray = If(RoomsCache, New JArray())
         Dim Mine As JObject = Nothing
@@ -343,12 +376,29 @@ Public Class PageLinkRoom
         PanCreateForm.Visibility = If(Mine Is Nothing, Visibility.Visible, Visibility.Collapsed)
         If Mine IsNot Nothing Then PanMyRoomCard.Children.Add(BuildMyRoomCard(Mine))
 
-        LabOtherRooms.Visibility = If(Others.Count = 0, Visibility.Collapsed, Visibility.Visible)
+        '房间分组：房主是好友的进「好友房间」，其余进「其他房间」
+        Dim FriendRooms As New List(Of JObject)
+        Dim OtherRooms As New List(Of JObject)
+        For Each Room As JObject In Others
+            If FriendIds.Contains(If(Room("ownerId")?.ToString(), "")) Then
+                FriendRooms.Add(Room)
+            Else
+                OtherRooms.Add(Room)
+            End If
+        Next
+        PanFriendRoomList.Children.Clear()
+        LabFriendRooms.Visibility = If(FriendRooms.Count = 0, Visibility.Collapsed, Visibility.Visible)
+        PanFriendRoomList.Visibility = LabFriendRooms.Visibility
+        For Each Room As JObject In FriendRooms
+            PanFriendRoomList.Children.Add(BuildOtherRoomRow(Room))
+        Next
+
+        LabOtherRooms.Visibility = If(OtherRooms.Count = 0, Visibility.Collapsed, Visibility.Visible)
         PanOtherRoomList.Visibility = LabOtherRooms.Visibility
-        If Others.Count = 0 Then Return
-        For Each Room In Others
+        For Each Room As JObject In OtherRooms
             PanOtherRoomList.Children.Add(BuildOtherRoomRow(Room))
         Next
+        If Others.Count = 0 Then Return
         Dim PendingAddresses As New List(Of String)
         Dim PendingRooms As New List(Of JObject)
         For Each Room In Others
@@ -467,14 +517,27 @@ Public Class PageLinkRoom
             Return Panel
         End If
         Dim Index As Integer = 0
+        Dim OwnerId As String = If(Item("ownerId")?.ToString(), "")
         For Each Member As JToken In Members
             Index += 1
-            Panel.Children.Add(BuildMemberRow(Index, TryCast(Member, JObject)))
+            Panel.Children.Add(BuildMemberRow(Index, TryCast(Member, JObject), OwnerId))
         Next
         Return Panel
     End Function
 
-    Private Function BuildMemberRow(Index As Integer, Member As JObject) As FrameworkElement
+    ''' <summary>进入方式 → 语义色：校内绿、P2P 蓝、公网灰。</summary>
+    Private Function ViaColor(Via As String) As Color
+        Select Case Via
+            Case "campus"
+                Return SocialGreen
+            Case "p2p"
+                Return SocialBlue
+            Case Else
+                Return SocialGray
+        End Select
+    End Function
+
+    Private Function BuildMemberRow(Index As Integer, Member As JObject, OwnerId As String) As FrameworkElement
         If Member Is Nothing Then Return New Grid()
         Dim Row As New Grid With {.Height = 36, .Margin = New Thickness(0, 0, 0, 2)}
         Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(30)})
@@ -496,12 +559,29 @@ Public Class PageLinkRoom
             .TextTrimming = TextTrimming.CharacterEllipsis}
         Grid.SetColumn(Label, 2)
         Row.Children.Add(Label)
-        Dim State As New TextBlock With {
-            .Text = If(Member("online")?.ToObject(Of Boolean)(), "游戏中", "已加入"),
-            .FontSize = 11, .Opacity = 0.45,
-            .VerticalAlignment = VerticalAlignment.Center}
-        Grid.SetColumn(State, 3)
-        Row.Children.Add(State)
+        '右侧：进入方式（房主固定显示「房主」）+ 在线状态
+        Dim Right As New StackPanel With {
+            .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
+        Dim AccountId As String = If(Member("accountId")?.ToString(), "")
+        Dim Via As String = If(Member("via")?.ToString(), "")
+        Dim ViaName As String = If(Member("viaName")?.ToString(), "")
+        If AccountId <> "" AndAlso AccountId = OwnerId Then
+            Dim OwnerBadge As Border = SocialBadge("房主", SocialBlue)
+            OwnerBadge.Margin = New Thickness(0)
+            Right.Children.Add(OwnerBadge)
+        ElseIf ViaName <> "" Then
+            Dim ViaBadge As Border = SocialBadge(ViaName, ViaColor(Via))
+            ViaBadge.Margin = New Thickness(0)
+            Right.Children.Add(ViaBadge)
+        End If
+        Dim Online As Boolean = Member("online")?.ToObject(Of Boolean)()
+        Right.Children.Add(New TextBlock With {
+            .Text = If(Online, "游戏中", "已加入"),
+            .FontSize = 11, .Margin = New Thickness(8, 0, 0, 0),
+            .Foreground = SocialBrush(If(Online, SocialGreen, SocialGray)),
+            .VerticalAlignment = VerticalAlignment.Center})
+        Grid.SetColumn(Right, 3)
+        Row.Children.Add(Right)
         Return Row
     End Function
 
@@ -670,12 +750,29 @@ Public Class PageLinkRoom
         RunInNewThread(Sub() JoinAndEnter(Code, Password), "SocialJoin")
     End Sub
 
+    ''' <summary>加入房间时选定的入口：地址 + 方式（campus / p2p / public）。</summary>
+    Private Class JoinRoute
+        Public ReadOnly Address As String
+        Public ReadOnly Via As String
+        Public Sub New(Address As String, Via As String)
+            Me.Address = Address
+            Me.Via = Via
+        End Sub
+    End Class
+
     ''' <summary>在后台线程完成加入并回到 UI 更新状态。</summary>
     Private Sub JoinAndEnter(Code As String, Password As String)
         Try
             Dim Room As JObject = ModSocial.JoinRoom(Code, Password)
             If Room Is Nothing Then Throw New Exception("房间不存在或已结束")
-            Dim Address As String = JoinAddress(Code, Room)
+            Dim Route As JoinRoute = ChooseRoute(Code, Room)
+            Dim Address As String = Route.Address
+            '先同步上报一次在线状态，再回到 UI 刷新，避免成员列表要等下一轮定时刷新
+            Try
+                ModSocial.ReportPresenceOnce(Code, Password, Route.Via)
+            Catch ex As Exception
+                Logger.Warn(ex, "加入房间后上报在线状态失败")
+            End Try
             RunInUi(
             Sub()
                 Try
@@ -685,13 +782,13 @@ Public Class PageLinkRoom
                 End Try
                 ModSocial.SetJoinerServer(Address, Code)
                 '让房主端的成员列表能看到自己
-                ModSocial.StartPresence(Code, Password)
+                ModSocial.StartPresence(Code, Password, Route.Via)
                 JoinedRoomCode = Code
                 JoinedPassword = Password
                 ExpandedRoom = Code
                 LabStatus.Text = $"已加入「{Room("name")}」，地址 {Address}（启动游戏后直接进入）"
                 Hint("已加入房间，启动游戏会直接进入，无需手动添加服务器", HintType.Green)
-                RenderRooms()
+                RefreshAll()
             End Sub)
         Catch ex As Exception
             RunInUi(Sub() Hint("加入房间失败：" & ex.Message, HintType.Red))
@@ -701,19 +798,32 @@ Public Class PageLinkRoom
     ''' <summary>退出已加入的房间，清空进服地址并停止在线状态上报。</summary>
     Private Sub LeaveJoinedRoom()
         If JoinedRoomCode = "" Then Return
-        ModSocial.StopPresence()
+        Dim Code As String = JoinedRoomCode
+        '只停定时器，离开请求在下面同步上报，退出后立刻刷新成员列表
+        ModSocial.StopPresence(SendLeave:=False)
         ModSocial.SetJoinerServer("")
         JoinedRoomCode = ""
         JoinedPassword = ""
-        LabStatus.Text = "已退出房间"
-        Hint("已退出房间", HintType.Green)
-        RenderRooms()
+        LabStatus.Text = "正在退出房间……"
+        RunInNewThread(
+        Sub()
+            Try
+                ModSocial.RemovePresenceOnce(Code)
+            Catch ex As Exception
+                Logger.Warn(ex, "退出房间状态上报失败")
+            End Try
+            RunInUi(
+            Sub()
+                Hint("已退出房间", HintType.Green)
+                RefreshAll()
+            End Sub)
+        End Sub, "SocialLeaveRoom")
     End Sub
 
     ''' <summary>
-    ''' 自动协商：校内入口可达直接走校内；否则先尝试 P2P 打洞，仍不行再走公网中继。
+    ''' 自动协商：校内入口可达直接走校内；否则先尝试 P2P 打洞，仍不行再走公网中继，并记录对应方式。
     ''' </summary>
-    Private Function JoinAddress(Code As String, Room As JObject) As String
+    Private Function ChooseRoute(Code As String, Room As JObject) As JoinRoute
         Dim CampusEntry As JObject = Nothing
         Dim PublicEntry As JObject = Nothing
         Dim Endpoints As JArray = TryCast(Room("endpoints"), JArray)
@@ -730,7 +840,8 @@ Public Class PageLinkRoom
         End If
         '1. 校内入口可达：直接走校内，延迟最低
         If CampusEntry IsNot Nothing AndAlso EntryReachable(CampusEntry) Then
-            Return CampusEntry("host").ToString() & ":" & CampusEntry("port").ToString()
+            Return New JoinRoute(CampusEntry("host").ToString() & ":" & CampusEntry("port").ToString(),
+                                 "campus")
         End If
         '2. P2P 打洞：由公网入口协助
         If PublicEntry IsNot Nothing Then
@@ -745,26 +856,28 @@ Public Class PageLinkRoom
                     New JProperty("proxyName", "njitmcl-" & Code),
                     New JProperty("stcpName", "njitmcl-" & Code & "-stcp"),
                     New JProperty("secretKey", PublicEntry("secret")))
-                Return ModSocial.VisitRoom(Code, Xtcp)
+                Return New JoinRoute(ModSocial.VisitRoom(Code, Xtcp), "p2p")
             Catch ex As Exception
                 Logger.Warn(ex, "P2P 打洞失败，回退公网中继")
             End Try
             '3. 公网中继兜底
-            Return PublicEntry("host").ToString() & ":" & PublicEntry("port").ToString()
+            Return New JoinRoute(PublicEntry("host").ToString() & ":" & PublicEntry("port").ToString(),
+                                 "public")
         End If
         If CampusEntry IsNot Nothing Then
-            Return CampusEntry("host").ToString() & ":" & CampusEntry("port").ToString()
+            Return New JoinRoute(CampusEntry("host").ToString() & ":" & CampusEntry("port").ToString(),
+                                 "campus")
         End If
         '旧房间兼容
         Dim Legacy As JObject = TryCast(Room("xtcp"), JObject)
         If Legacy IsNot Nothing Then
             Try
-                Return ModSocial.VisitRoom(Code, Legacy)
+                Return New JoinRoute(ModSocial.VisitRoom(Code, Legacy), "p2p")
             Catch ex As Exception
                 Logger.Warn(ex, "P2P 打洞失败，回退中继地址")
             End Try
         End If
-        Return Room("host").ToString() & ":" & Room("port").ToString()
+        Return New JoinRoute(Room("host").ToString() & ":" & Room("port").ToString(), "public")
     End Function
 
     ''' <summary>

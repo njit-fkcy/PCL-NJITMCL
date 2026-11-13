@@ -96,7 +96,25 @@ Public Module ModSocial
         StopVisitor()
         DeviceToken = ""
         SocialName = ""
+        MyAccountId = ""
+        '退出后顶级导航上的未读数字应立即清零
+        Try
+            If FrmMain IsNot Nothing Then FrmMain.RefreshMessageBadge()
+        Catch ex As Exception
+            Logger.Warn(ex, "刷新未读消息数失败")
+        End Try
     End Sub
+
+    ''' <summary>
+    ''' 把异常转成适合展示给用户的一句话：中文业务错误原样展示，网络类错误统一为友好提示。
+    ''' </summary>
+    Public Function FriendlyError(ex As Exception) As String
+        If ex Is Nothing Then Return "连接服务器失败，请稍后重试"
+        Dim Msg As String = If(ex.Message, "")
+        If String.IsNullOrWhiteSpace(Msg) Then Return "连接服务器失败，请稍后重试"
+        If System.Text.RegularExpressions.Regex.IsMatch(Msg, "[\u4e00-\u9fff]") Then Return Msg
+        Return "连接服务器失败，请检查网络后重试"
+    End Function
 
     ''' <summary>
     ''' 确保已取得设备令牌；正版登录用户会自动换取，其余情况抛出提示。
@@ -127,6 +145,52 @@ Public Module ModSocial
             New JProperty("name", Settings.Get(Of String)("CacheMsV2Name"))), NeedToken:=False)
         ApplyDeviceToken(Result)
         Return IsLoggedIn()
+    End Function
+
+    ''' <summary>
+    ''' 统一授权入口：优先用正版登录态换取设备令牌，没有正版登录态才走设备码。
+    ''' 必须在后台线程调用；ShowUserCode 在申请到设备码时触发（用于复制到剪贴板并提示）。
+    ''' </summary>
+    ''' <param name="DeviceName">设备名，用于官网「授权设备」列表。</param>
+    ''' <param name="ShowUserCode">拿到用户码后的回调（可为 Nothing）。</param>
+    ''' <param name="CancelFlag">返回 True 时终止等待（可为 Nothing）。</param>
+    ''' <returns>True 表示已取得设备令牌。</returns>
+    Public Function AuthorizeLauncher(DeviceName As String, Optional ShowUserCode As Action(Of String) = Nothing,
+                                      Optional CancelFlag As Func(Of Boolean) = Nothing) As Boolean
+        If IsLoggedIn() Then Return True
+        '有正版登录态：直接换取设备令牌，无需用户操作
+        Try
+            If AuthorizeWithMojang() Then Return True
+        Catch ex As Exception
+            Logger.Warn(ex, "正版直授权失败，改用设备码")
+        End Try
+        Dim Result As JObject = RequestDeviceCode(DeviceName)
+        Dim DeviceValue As String = If(Result("deviceCode")?.ToString(), "")
+        Dim UserCode As String = If(Result("userCode")?.ToString(), "")
+        If String.IsNullOrWhiteSpace(DeviceValue) OrElse String.IsNullOrWhiteSpace(UserCode) Then
+            Throw New Exception("申请设备码失败，请稍后重试")
+        End If
+        If ShowUserCode IsNot Nothing Then ShowUserCode(UserCode)
+        Dim Interval As Integer = If(Result("interval")?.ToObject(Of Integer)(), 3) * 1000
+        Dim Deadline As Date = Date.Now.AddSeconds(If(Result("expiresIn")?.ToObject(Of Integer)(), 600))
+        While Date.Now < Deadline
+            If CancelFlag IsNot Nothing AndAlso CancelFlag() Then Return False
+            Thread.Sleep(Interval)
+            If CancelFlag IsNot Nothing AndAlso CancelFlag() Then Return False
+            Dim Poll As JObject = Nothing
+            Try
+                Poll = PollDevice(DeviceValue)
+            Catch ex As Exception
+                '单次轮询网络抖动不终止流程，继续下一轮
+                Logger.Warn(ex, "设备码轮询失败，继续等待")
+                Continue While
+            End Try
+            If If(Poll("status")?.ToString(), "") = "approved" Then
+                ApplyDeviceToken(Poll)
+                Return IsLoggedIn()
+            End If
+        End While
+        Return False
     End Function
 
     ''' <summary>
@@ -280,6 +344,101 @@ Public Module ModSocial
     Public Sub UnblockFriend(AccountId As String)
         EnsureLogin()
         Api("POST", "/friends/unblock", New JObject(New JProperty("accountId", AccountId)))
+    End Sub
+
+#End Region
+#Region "消息"
+
+    ''' <summary>
+    ''' 会话列表：有往来的好友与最后一条消息。
+    ''' </summary>
+    Public Function MessageConversations() As JArray
+        EnsureLogin()
+        Dim Result As JObject = Api("GET", "/messages/conversations", Nothing)
+        Return If(TryCast(Result("conversations"), JArray), New JArray())
+    End Function
+
+    ''' <summary>
+    ''' 拉取与某好友的聊天记录；AfterId 为 0 时返回最近一页，否则只返回该消息之后的新消息。
+    ''' </summary>
+    Public Function MessageList(PeerId As String, Optional AfterId As Long = 0) As JArray
+        EnsureLogin()
+        Dim Url As String = "/messages?peer=" & Uri.EscapeDataString(PeerId)
+        If AfterId > 0 Then Url &= "&after=" & AfterId.ToString()
+        Dim Result As JObject = Api("GET", Url, Nothing)
+        Return If(TryCast(Result("messages"), JArray), New JArray())
+    End Function
+
+    ''' <summary>
+    ''' 给好友发送一条文本消息。
+    ''' </summary>
+    Public Function SendMessage(PeerId As String, Content As String) As JObject
+        EnsureLogin()
+        Dim Result As JObject = Api("POST", "/messages", New JObject(
+            New JProperty("accountId", PeerId),
+            New JProperty("content", Content)))
+        Return TryCast(Result("message"), JObject)
+    End Function
+
+    ''' <summary>
+    ''' 系统消息（管理员在网站管理后台发布）。
+    ''' </summary>
+    Public Function ClubSystemMessages() As JObject
+        EnsureLogin()
+        Return Api("GET", "/club/system-messages", Nothing)
+    End Function
+
+    ''' <summary>
+    ''' 把系统消息的已读位置推进到 LastId。
+    ''' </summary>
+    Public Function MarkSystemMessagesRead(LastId As Long) As JObject
+        EnsureLogin()
+        Return Api("POST", "/club/system-messages/read",
+            New JObject(New JProperty("lastId", LastId)))
+    End Function
+
+    ''' <summary>
+    ''' 未读消息总数（好友消息 + 系统消息），用于在「联机」导航上显示数字。
+    ''' 未登录或接口失败时返回 0，不抛异常。
+    ''' </summary>
+    Public Function UnreadTotal() As Integer
+        If Not IsLoggedIn() Then Return 0
+        Dim Total As Integer = 0
+        Try
+            Dim FriendData As JObject = Api("GET", "/messages/unread", Nothing, Silent:=True)
+            If FriendData("total") IsNot Nothing Then
+                Total += FriendData("total").ToObject(Of Integer)()
+            End If
+        Catch ex As Exception
+            Logger.Warn(ex, "获取好友未读数失败")
+        End Try
+        '系统消息接口同时返回全文与未读数；数量很少，直接复用，避免再加一个接口
+        Try
+            Dim SystemData As JObject = Api("GET", "/club/system-messages", Nothing, Silent:=True)
+            If SystemData("unread") IsNot Nothing Then
+                Total += SystemData("unread").ToObject(Of Integer)()
+            End If
+        Catch ex As Exception
+            Logger.Warn(ex, "获取系统消息未读数失败")
+        End Try
+        Return Total
+    End Function
+
+    ''' <summary>
+    ''' 侧边栏徽章：未读消息总数与待处理好友申请数。未登录或失败时保持 0。
+    ''' </summary>
+    Public Sub BadgeCounts(ByRef Unread As Integer, ByRef Requests As Integer)
+        Unread = 0
+        Requests = 0
+        If Not IsLoggedIn() Then Return
+        Unread = UnreadTotal()
+        Try
+            Dim Data As JObject = Api("GET", "/friends", Nothing, Silent:=True)
+            Dim Incoming As JArray = TryCast(Data("incoming"), JArray)
+            If Incoming IsNot Nothing Then Requests = Incoming.Count
+        Catch ex As Exception
+            Logger.Warn(ex, "获取好友申请数失败")
+        End Try
     End Sub
 
 #End Region
@@ -443,6 +602,12 @@ Public Module ModSocial
             If Candidate <> Current Then
                 Logger.Info($"访客地址已切换：{Current} -> {Candidate}")
                 SetJoinerServer(Candidate, Code)
+            End If
+            '同步上报的入口方式，避免房主端一直显示切换前的入口
+            If Campus <> "" AndAlso Candidate = Campus Then
+                PresenceVia = "campus"
+            ElseIf PublicAddr <> "" AndAlso Candidate = PublicAddr Then
+                PresenceVia = "public"
             End If
             Return Candidate
         Catch ex As Exception
@@ -655,6 +820,8 @@ Public Module ModSocial
 
     Private FrpcProcesses As New List(Of Process)
     Private FrpcConfigPaths As New List(Of String)
+    'frpc 进程列表会在联机后台线程与退出清理/UI 读取间并发访问，统一加锁（竞态）
+    Private FrpcLock As New Object
     Private VisitorProcess As Process
     Private VisitorConfigPath As String = ""
     Private VisitorLocalPort As Integer = 0
@@ -662,6 +829,8 @@ Public Module ModSocial
     Private PresenceTimer As Timer
     Private PresenceCode As String = ""
     Private PresencePassword As String = ""
+    ''' <summary>本次加入房间选择的入口方式：campus / p2p / public。</summary>
+    Private PresenceVia As String = ""
     Private HostedPort As Integer = 0
     '当前房主房间号；关闭程序时据此释放房间与端口
     Private HostedRoomCode As String = ""
@@ -823,8 +992,10 @@ Public Module ModSocial
                 Catch
                 End Try
             End Sub
-        FrpcProcesses.Add(Proc)
-        FrpcConfigPaths.Add(ConfPath)
+        SyncLock FrpcLock
+            FrpcProcesses.Add(Proc)
+            FrpcConfigPaths.Add(ConfPath)
+        End SyncLock
         Logger.Info($"已启动 frpc：房间 {Code}，节点 {If(NodeId = "", "-", NodeId)}")
     End Sub
 
@@ -948,12 +1119,14 @@ Public Module ModSocial
     ''' </summary>
     Public ReadOnly Property FrpcAlive As Boolean
         Get
-            For Each Item As Process In FrpcProcesses
-                Try
-                    If Item IsNot Nothing AndAlso Not Item.HasExited Then Return True
-                Catch
-                End Try
-            Next
+            SyncLock FrpcLock
+                For Each Item As Process In FrpcProcesses
+                    Try
+                        If Item IsNot Nothing AndAlso Not Item.HasExited Then Return True
+                    Catch
+                    End Try
+                Next
+            End SyncLock
             Return False
         End Get
     End Property
@@ -962,22 +1135,24 @@ Public Module ModSocial
     ''' 停止 frpc 并清理配置。
     ''' </summary>
     Public Sub StopFrpc()
-        For Each Item As Process In FrpcProcesses
-            Try
-                If Item IsNot Nothing AndAlso Not Item.HasExited Then Item.Kill()
-            Catch ex As Exception
-                Logger.Warn(ex, "停止 frpc 失败")
-            End Try
-        Next
-        FrpcProcesses.Clear()
-        For Each Path As String In FrpcConfigPaths
-            Try
-                FileUtils.Delete(Path)
-            Catch
-                ' 忽略清理失败
-            End Try
-        Next
-        FrpcConfigPaths.Clear()
+        SyncLock FrpcLock
+            For Each Item As Process In FrpcProcesses
+                Try
+                    If Item IsNot Nothing AndAlso Not Item.HasExited Then Item.Kill()
+                Catch ex As Exception
+                    Logger.Warn(ex, "停止 frpc 失败")
+                End Try
+            Next
+            FrpcProcesses.Clear()
+            For Each Path As String In FrpcConfigPaths
+                Try
+                    FileUtils.Delete(Path)
+                Catch
+                    ' 忽略清理失败
+                End Try
+            Next
+            FrpcConfigPaths.Clear()
+        End SyncLock
     End Sub
 
     ''' <summary>
@@ -986,23 +1161,25 @@ Public Module ModSocial
     Public Sub StopFrpcNode(Code As String, NodeId As String)
         '与 StartFrpcNode 的文件命名保持一致：NodeId 为空时不带 "-" 后缀
         Dim Target As String = If(NodeId = "", "frpc-" & Code & ".toml", "frpc-" & Code & "-" & NodeId & ".toml")
-        For Index As Integer = FrpcConfigPaths.Count - 1 To 0 Step -1
-            If IO.Path.GetFileName(FrpcConfigPaths(Index)) <> Target Then Continue For
-            Try
-                If FrpcProcesses(Index) IsNot Nothing AndAlso Not FrpcProcesses(Index).HasExited Then
-                    FrpcProcesses(Index).Kill()
-                End If
-            Catch ex As Exception
-                Logger.Warn(ex, "停止节点 frpc 失败")
-            End Try
-            Try
-                FileUtils.Delete(FrpcConfigPaths(Index))
-            Catch
-                ' 忽略清理失败
-            End Try
-            FrpcProcesses.RemoveAt(Index)
-            FrpcConfigPaths.RemoveAt(Index)
-        Next
+        SyncLock FrpcLock
+            For Index As Integer = FrpcConfigPaths.Count - 1 To 0 Step -1
+                If IO.Path.GetFileName(FrpcConfigPaths(Index)) <> Target Then Continue For
+                Try
+                    If FrpcProcesses(Index) IsNot Nothing AndAlso Not FrpcProcesses(Index).HasExited Then
+                        FrpcProcesses(Index).Kill()
+                    End If
+                Catch ex As Exception
+                    Logger.Warn(ex, "停止节点 frpc 失败")
+                End Try
+                Try
+                    FileUtils.Delete(FrpcConfigPaths(Index))
+                Catch
+                    ' 忽略清理失败
+                End Try
+                FrpcProcesses.RemoveAt(Index)
+                FrpcConfigPaths.RemoveAt(Index)
+            Next
+        End SyncLock
     End Sub
 
     ''' <summary>
@@ -1032,21 +1209,31 @@ Public Module ModSocial
     End Sub
 
     ''' <summary>
+    ''' 立即上报一次「我在这个房间」，用于加入后马上刷新成员列表（必须在后台线程调用）。
+    ''' Via 为进入方式（campus / p2p / public），房主端据此显示每个成员的入口。
+    ''' </summary>
+    Public Sub ReportPresenceOnce(Code As String, Optional Password As String = "", Optional Via As String = "")
+        If String.IsNullOrWhiteSpace(Code) OrElse Not IsLoggedIn() Then Return
+        Dim Payload As New JObject()
+        If Password <> "" Then Payload("password") = Password
+        If Via <> "" Then Payload("via") = Via
+        Api("POST", "/rooms/" & Uri.EscapeDataString(Code) & "/presence", Payload, Silent:=True)
+    End Sub
+
+    ''' <summary>
     ''' 加入房间后定期上报「我在这个房间」，房主端成员列表据此展示。
     ''' </summary>
-    Public Sub StartPresence(Code As String, Optional Password As String = "")
+    Public Sub StartPresence(Code As String, Optional Password As String = "", Optional Via As String = "")
         StopPresence()
         If String.IsNullOrWhiteSpace(Code) OrElse Not IsLoggedIn() Then Return
         PresenceCode = Code
         PresencePassword = If(Password, "")
+        PresenceVia = If(Via, "")
         PresenceTimer = New Timer(
             Sub(State As Object)
                 Try
                     If PresenceCode = "" Then Return
-                    Dim Payload As New JObject()
-                    If PresencePassword <> "" Then Payload("password") = PresencePassword
-                    Api("POST", "/rooms/" & Uri.EscapeDataString(PresenceCode) & "/presence",
-                        Payload, Silent:=True)
+                    ReportPresenceOnce(PresenceCode, PresencePassword, PresenceVia)
                 Catch ex As Exception
                     Logger.Warn(ex, "房间在线状态上报失败")
                 End Try
@@ -1054,22 +1241,32 @@ Public Module ModSocial
     End Sub
 
     ''' <summary>
-    ''' 停止房间在线状态上报，并通知中控把自己从成员列表移除。
-    ''' leave 请求放后台执行，避免断网时阻塞 UI 线程；WaitMs &gt; 0 时最多等待该毫秒数（退出清理用）。
+    ''' 立即上报一次「我离开这个房间」，用于退出后马上刷新成员列表（必须在后台线程调用）。
     ''' </summary>
-    Public Sub StopPresence(Optional WaitMs As Integer = 0)
+    Public Sub RemovePresenceOnce(Code As String)
+        If String.IsNullOrWhiteSpace(Code) OrElse Not IsLoggedIn() Then Return
+        Api("POST", "/rooms/" & Uri.EscapeDataString(Code) & "/leave", New JObject(), Silent:=True)
+    End Sub
+
+    ''' <summary>
+    ''' 停止房间在线状态上报，并通知中控把自己从成员列表移除。
+    ''' leave 请求默认放后台执行，避免断网时阻塞 UI 线程；WaitMs &gt; 0 时最多等待该毫秒数。
+    ''' SendLeave 为 False 时只停定时器，由调用方自行同步上报离开。
+    ''' </summary>
+    Public Sub StopPresence(Optional WaitMs As Integer = 0, Optional SendLeave As Boolean = True)
         Dim Code As String = PresenceCode
         PresenceCode = ""
         PresencePassword = ""
+        PresenceVia = ""
         If PresenceTimer IsNot Nothing Then
             PresenceTimer.Dispose()
             PresenceTimer = Nothing
         End If
-        If Code = "" OrElse Not IsLoggedIn() Then Return
+        If Not SendLeave OrElse Code = "" OrElse Not IsLoggedIn() Then Return
         Dim LeaveTask As System.Threading.Tasks.Task = System.Threading.Tasks.Task.Run(
             Sub()
                 Try
-                    Api("POST", "/rooms/" & Uri.EscapeDataString(Code) & "/leave", New JObject(), Silent:=True)
+                    RemovePresenceOnce(Code)
                 Catch ex As Exception
                     Logger.Warn(ex, "退出房间状态上报失败")
                 End Try
@@ -1160,6 +1357,14 @@ Public Module ModSocial
     ''' </summary>
     Public Function ClubCancelSignup(EventId As String) As JObject
         Return Api("POST", "/club/events/" & Uri.EscapeDataString(EventId) & "/cancel-signup", New JObject())
+    End Function
+
+    ''' <summary>
+    ''' 活动签到：用当前设备令牌对应的账号身份，签到码为现场公开的 6 位数字。
+    ''' </summary>
+    Public Function ClubCheckin(EventId As String, Code As String) As JObject
+        Return Api("POST", "/club/events/" & Uri.EscapeDataString(EventId) & "/checkin",
+                   New JObject(New JProperty("code", Code)))
     End Function
 
     ''' <summary>

@@ -33,6 +33,28 @@ Public Class ClubLifePanel
 
 #Region "加载"
 
+    ''' <summary>可签到活动发生变化时触发，供启动页「活动签到」提示卡片刷新。</summary>
+    Public Event CheckinAvailableChanged(Items As JArray)
+
+    ''' <summary>当前处于签到窗口、且本人尚未签到的活动。</summary>
+    Public ReadOnly Property CheckinItems As JArray
+        Get
+            Dim Result As New JArray
+            Dim MyEvents As JArray = If(Data Is Nothing, Nothing, TryCast(Data("myEvents"), JArray))
+            If MyEvents IsNot Nothing Then
+                For Each Token As JToken In MyEvents
+                    If Equals(Token?("checkinOpen")?.ToObject(Of Boolean)(), True) Then Result.Add(Token)
+                Next
+            End If
+            Return Result
+        End Get
+    End Property
+
+    ''' <summary>从外部（启动页提示卡片）打开签到弹窗。</summary>
+    Public Sub OpenCheckin(EventId As String, Title As String)
+        ShowCheckinDialog(EventId, Title)
+    End Sub
+
     ''' <summary>面板第一次显示时自动加载一次。</summary>
     Private Sub PanelLoaded() Handles Me.Loaded
         If Data IsNot Nothing OrElse Loading Then Return
@@ -66,8 +88,15 @@ Public Class ClubLifePanel
     Private Sub RefreshAll()
         If Loading Then Return
         If Not ModSocial.IsLoggedIn() Then
-            LabState.Text = "请先官网授权启动器，才可以使用社团功能"
-            ShowMessage("请先点击上方「授权启动器」，完成官网授权后即可使用活动报名、投票与个人中心。")
+            LabState.Text = "尚未授权启动器"
+            PanBody.Children.Clear()
+            PanBody.Children.Add(SocialLabel("使用活动报名、投票与个人中心前，需要先完成官网授权。"))
+            Dim BtnAuth As New MyButton With {
+                .Text = "去官网授权启动器", .Height = 32, .MinWidth = 168, .Margin = New Thickness(0, 10, 0, 0),
+                .ColorType = MyButton.ColorState.Highlight}
+            AddHandler BtnAuth.Click, Sub() OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
+            PanBody.Children.Add(BtnAuth)
+            RaiseEvent CheckinAvailableChanged(New JArray)
             Return
         End If
         Loading = True
@@ -84,8 +113,9 @@ Public Class ClubLifePanel
                     Data = Result
                     LastLoadAt = Date.Now
                     ClearDetail()
-                    LabState.Text = "已连接社团账号：" & If(Result("displayName")?.ToString(), "")
+                    LabState.Text = "社团账号：" & If(Result("displayName")?.ToString(), "")
                     RenderTab()
+                    RaiseEvent CheckinAvailableChanged(CheckinItems)
                 End Sub)
             Catch ex As Exception
                 Logger.Warn(ex, "加载社团生活失败")
@@ -146,6 +176,8 @@ Public Class ClubLifePanel
                         PollChoice = ""
                     End If
                     RenderTab()
+                    '签到成功后要立刻收起启动页的「活动签到」卡片，不能等下一次整页刷新
+                    RaiseEvent CheckinAvailableChanged(CheckinItems)
                 End Sub)
             Catch ex As Exception
                 RunInUi(Sub() Hint(ex.Message, HintType.Red))
@@ -214,7 +246,7 @@ Public Class ClubLifePanel
         Return Btn
     End Function
 
-    Private Function BuildTitleRow(Title As String, Status As String, Accent As Brush) As FrameworkElement
+    Private Function BuildTitleRow(Title As String, Status As String, Accent As Color) As FrameworkElement
         Dim Head As New Grid
         Head.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
         Head.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
@@ -224,12 +256,7 @@ Public Class ClubLifePanel
         }
         Head.Children.Add(Text)
         If Status <> "" Then
-            Dim Badge As New Border With {
-                .CornerRadius = New CornerRadius(3), .Padding = New Thickness(7, 2, 7, 2),
-                .Margin = New Thickness(8, 0, 0, 0), .VerticalAlignment = VerticalAlignment.Center,
-                .Background = New SolidColorBrush(Color.FromArgb(16, 0, 0, 0))
-            }
-            Badge.Child = New TextBlock With {.Text = Status, .FontSize = 10.5, .Foreground = Accent}
+            Dim Badge As Border = SocialBadge(Status, Accent)
             Grid.SetColumn(Badge, 1)
             Head.Children.Add(Badge)
         End If
@@ -311,7 +338,7 @@ Public Class ClubLifePanel
         Box.ToolTip = "点击查看活动详情"
         Dim Panel As New StackPanel
         Panel.Children.Add(BuildTitleRow(If(Item("title")?.ToString(), "社团活动"),
-                                         EventStatusText(Status), EventStatusBrush(Status)))
+                                         EventStatusText(Status), EventStatusColor(Status)))
         Dim Desc As String = If(Item("description")?.ToString(), "")
         If Desc.Length > 90 Then Desc = Desc.Substring(0, 90) & "…"
         If Desc <> "" Then
@@ -326,11 +353,30 @@ Public Class ClubLifePanel
                                      " · 已报名 " & SignupCount &
                                      If(Capacity > 0, " / " & Capacity, "") & " 人"))
         If TryCast(Item("mine"), JObject) IsNot Nothing Then
+            Dim Checked As Boolean = Item("mine")?("checked_in_at")?.Type <> JTokenType.Null
+            Dim CheckinOpen As Boolean = Equals(Item("checkinOpen")?.ToObject(Of Boolean)(), True)
             Panel.Children.Add(New TextBlock With {
-                .Text = "你已报名" & If(Item("mine")?("checked_in_at")?.Type <> JTokenType.Null, " · 已签到", " · 待签到"),
-                .FontSize = 11, .Foreground = New SolidColorBrush(Color.FromRgb(&H1F, &H9F, &H5A)),
+                .Text = If(Checked, "你已报名 · 已签到", If(CheckinOpen, "你已报名 · 正在签到，请及时签到", "你已报名 · 待签到")),
+                .FontSize = 11, .Foreground = SocialBrush(If(Checked, SocialGreen, If(CheckinOpen, SocialBlue, SocialGray))),
                 .Margin = New Thickness(0, 5, 0, 0)
             })
+            If CheckinOpen AndAlso Not Checked Then
+                '正在签到的活动高亮卡片，并给出直接入口
+                Box.BorderBrush = SocialBrush(SocialBlue)
+                Box.BorderThickness = New Thickness(1.5)
+                Dim BtnCheckin As New MyButton With {
+                    .Text = "立即签到", .Height = 28, .MinWidth = 96, .Margin = New Thickness(0, 8, 0, 0),
+                    .ColorType = MyButton.ColorState.Highlight,
+                    .HorizontalAlignment = System.Windows.HorizontalAlignment.Left}
+                Dim EId As String = If(Item("id")?.ToString(), "")
+                Dim ETitle As String = If(Item("title")?.ToString(), "")
+                AddHandler BtnCheckin.Click,
+                    Sub(sender As Object, e2 As System.Windows.RoutedEventArgs)
+                        e2.Handled = True
+                        ShowCheckinDialog(EId, ETitle)
+                    End Sub
+                Panel.Children.Add(BtnCheckin)
+            End If
         End If
         Box.Child = Panel
         Dim EventId As String = If(Item("id")?.ToString(), "")
@@ -379,7 +425,7 @@ Public Class ClubLifePanel
                 RenderTab()
             End Sub))
         PanBody.Children.Add(BuildTitleRow(If(EventData("title")?.ToString(), "社团活动"),
-                                           EventStatusText(Status), EventStatusBrush(Status)))
+                                           EventStatusText(Status), EventStatusColor(Status)))
         Dim Desc As String = If(EventData("description")?.ToString(), "")
         If Desc <> "" Then
             PanBody.Children.Add(New TextBlock With {
@@ -413,9 +459,21 @@ Public Class ClubLifePanel
         '操作
         PanBody.Children.Add(SocialDivider())
         If Mine IsNot Nothing Then
-            PanBody.Children.Add(SocialLabel("你已报名" & If(Mine("checked_in_at")?.Type <> JTokenType.Null,
-                                                       "，签到已完成。", "，等待现场签到。")))
-            If Status = "open" AndAlso Mine("checked_in_at")?.Type = JTokenType.Null Then
+            Dim Checked As Boolean = Mine("checked_in_at")?.Type <> JTokenType.Null
+            Dim CheckinOpen As Boolean = Equals(EventData("checkinOpen")?.ToObject(Of Boolean)(), True)
+            PanBody.Children.Add(SocialLabel(
+                If(Checked, "你已报名，签到已完成。",
+                   If(CheckinOpen, "你已报名，该活动正在签到，请在截止时间前输入签到码。", "你已报名，等待现场签到。"))))
+            If CheckinOpen AndAlso Not Checked Then
+                Dim BtnCheckin As New MyButton With {
+                    .Text = "输入签到码", .Height = 32, .MinWidth = 132, .Margin = New Thickness(0, 8, 0, 0),
+                    .ColorType = MyButton.ColorState.Highlight}
+                Dim EId As String = If(EventData("id")?.ToString(), "")
+                Dim ETitle As String = If(EventData("title")?.ToString(), "")
+                AddHandler BtnCheckin.Click, Sub() ShowCheckinDialog(EId, ETitle)
+                PanBody.Children.Add(BtnCheckin)
+            End If
+            If Status = "open" AndAlso Not Checked Then
                 Dim BtnCancel As New MyButton With {
                     .Text = "取消报名", .Height = 30, .MinWidth = 120, .Margin = New Thickness(0, 8, 0, 0)}
                 AddHandler BtnCancel.Click,
@@ -566,6 +624,93 @@ Public Class ClubLifePanel
         End Sub, "ClubCancelSignup")
     End Sub
 
+#End Region
+#Region "签到"
+
+    '当前签到弹窗对应的活动编号
+    Private CheckinEventId As String = ""
+
+    ''' <summary>打开签到弹窗；标题用于说明是哪个活动。</summary>
+    Private Sub ShowCheckinDialog(EventId As String, Title As String)
+        If EventId = "" Then Return
+        CheckinEventId = EventId
+        LabCheckinTitle.Text = "签到 · " & If(String.IsNullOrWhiteSpace(Title), "社团活动", Title)
+        TxtCheckinCode.Text = ""
+        LabCheckinHint.Text = ""
+        LabCheckinHint.Visibility = System.Windows.Visibility.Collapsed
+        PanCheckin.Visibility = System.Windows.Visibility.Visible
+        TxtCheckinCode.Focus()
+    End Sub
+
+    Private Sub CloseCheckinDialog()
+        PanCheckin.Visibility = System.Windows.Visibility.Collapsed
+        CheckinEventId = ""
+    End Sub
+
+    Private Sub BtnCheckinCancel_Click(sender As Object, e As EventArgs) Handles BtnCheckinCancel.Click
+        CloseCheckinDialog()
+    End Sub
+
+    ''' <summary>签到码只允许输入数字。</summary>
+    Private Sub TxtCheckinCode_Changed(sender As Object, e As TextChangedEventArgs) Handles TxtCheckinCode.TextChanged
+        Dim Digits As New System.Text.StringBuilder
+        For Each Ch As Char In TxtCheckinCode.Text
+            If Char.IsDigit(Ch) Then Digits.Append(Ch)
+        Next
+        If Digits.ToString() <> TxtCheckinCode.Text Then
+            Dim Caret As Integer = TxtCheckinCode.CaretIndex
+            TxtCheckinCode.Text = Digits.ToString()
+            TxtCheckinCode.CaretIndex = Math.Min(Caret, TxtCheckinCode.Text.Length)
+        End If
+    End Sub
+
+    Private Sub BtnCheckinOk_Click(sender As Object, e As EventArgs) Handles BtnCheckinOk.Click
+        Dim EventId As String = CheckinEventId
+        Dim Code As String = TxtCheckinCode.Text.Trim()
+        If EventId = "" Then Return
+        If Code.Length <> 6 Then
+            ShowCheckinHint("签到码应为 6 位数字。")
+            TxtCheckinCode.Focus()
+            Return
+        End If
+        If Submitting Then Return
+        Submitting = True
+        BtnCheckinOk.IsEnabled = False
+        LabCheckinHint.Visibility = System.Windows.Visibility.Collapsed
+        RunInNewThread(
+        Sub()
+            Try
+                Dim Result As JObject = ModSocial.ClubCheckin(EventId, Code)
+                Dim Already As Boolean = Equals(Result("already")?.ToObject(Of Boolean)(), True)
+                RunInUi(
+                Sub()
+                    Submitting = False
+                    BtnCheckinOk.IsEnabled = True
+                    CloseCheckinDialog()
+                    Hint(If(Already, "你已完成签到", "签到成功，欢迎参加活动"), HintType.Green)
+                    ReloadData(EventId)
+                End Sub)
+            Catch ex As Exception
+                Logger.Warn(ex, "活动签到失败")
+                RunInUi(
+                Sub()
+                    Submitting = False
+                    BtnCheckinOk.IsEnabled = True
+                    ShowCheckinHint(ModSocial.FriendlyError(ex))
+                End Sub)
+            End Try
+        End Sub, "ClubCheckin")
+    End Sub
+
+    Private Sub ShowCheckinHint(Message As String)
+        LabCheckinHint.Text = Message
+        LabCheckinHint.Foreground = SocialBrush(SocialRed)
+        LabCheckinHint.Visibility = System.Windows.Visibility.Visible
+    End Sub
+
+#End Region
+#Region "活动状态"
+
     Private Function EventStatusText(Status As String) As String
         Select Case Status
             Case "open" : Return "报名中"
@@ -577,12 +722,11 @@ Public Class ClubLifePanel
         End Select
     End Function
 
-    Private Function EventStatusBrush(Status As String) As Brush
+    Private Function EventStatusColor(Status As String) As Color
         Select Case Status
-            Case "open" : Return New SolidColorBrush(Color.FromRgb(&H1F, &H9F, &H5A))
-            Case "upcoming" : Return New SolidColorBrush(Color.FromRgb(&H13, &H70, &HF3))
-            Case "closing" : Return New SolidColorBrush(Color.FromRgb(&H8C, &H8C, &H8C))
-            Case Else : Return New SolidColorBrush(Color.FromRgb(&H8C, &H8C, &H8C))
+            Case "open" : Return SocialGreen
+            Case "upcoming" : Return SocialBlue
+            Case Else : Return SocialGray
         End Select
     End Function
 
@@ -613,7 +757,7 @@ Public Class ClubLifePanel
         Box.ToolTip = "点击查看投票详情"
         Dim Panel As New StackPanel
         Panel.Children.Add(BuildTitleRow(If(Poll("title")?.ToString(), "社团投票"),
-                                         PollStatusText(Status), PollStatusBrush(Status)))
+                                         PollStatusText(Status), PollStatusColor(Status)))
         Dim Desc As String = If(Poll("description")?.ToString(), "")
         If Desc.Length > 90 Then Desc = Desc.Substring(0, 90) & "…"
         If Desc <> "" Then
@@ -674,7 +818,7 @@ Public Class ClubLifePanel
                 RenderTab()
             End Sub))
         PanBody.Children.Add(BuildTitleRow(If(Poll("title")?.ToString(), "社团投票"),
-                                           PollStatusText(Status), PollStatusBrush(Status)))
+                                           PollStatusText(Status), PollStatusColor(Status)))
         Dim Desc As String = If(Poll("description")?.ToString(), "")
         If Desc <> "" Then
             PanBody.Children.Add(New TextBlock With {
@@ -787,11 +931,11 @@ Public Class ClubLifePanel
         End Select
     End Function
 
-    Private Function PollStatusBrush(Status As String) As Brush
+    Private Function PollStatusColor(Status As String) As Color
         Select Case Status
-            Case "open" : Return New SolidColorBrush(Color.FromRgb(&H1F, &H9F, &H5A))
-            Case "scheduled" : Return New SolidColorBrush(Color.FromRgb(&H13, &H70, &HF3))
-            Case Else : Return New SolidColorBrush(Color.FromRgb(&H8C, &H8C, &H8C))
+            Case "open" : Return SocialGreen
+            Case "scheduled" : Return SocialBlue
+            Case Else : Return SocialGray
         End Select
     End Function
 
@@ -810,7 +954,7 @@ Public Class ClubLifePanel
         AccountCard.Margin = New Thickness(0, 8, 0, 0)
         Dim AccountPanel As New StackPanel With {.Orientation = Orientation.Horizontal}
         Dim AccountId As String = If(Data("accountId")?.ToString(), "")
-        Dim Avatar As FrameworkElement = SocialAvatar("/api/launcher/avatar/" & AccountId, 56,
+        Dim Avatar As FrameworkElement = SocialAvatar(If(AccountId <> "", "/api/launcher/avatar/" & AccountId, ""), 56,
                                                      If(Data("displayName")?.ToString(), ""))
         Avatar.Margin = New Thickness(0, 0, 14, 0)
         AccountPanel.Children.Add(Avatar)
@@ -833,7 +977,7 @@ Public Class ClubLifePanel
         If Equals(Reputation?("blacklisted")?.ToObject(Of Boolean)(), True) Then
             RepPanel.Children.Add(New TextBlock With {
                 .Text = "你目前被限制报名活动：累计报名未签到次数过多。",
-                .FontSize = 11.5, .Foreground = New SolidColorBrush(Color.FromRgb(&HD0, &H4B, &H3F)),
+                .FontSize = 11.5, .Foreground = SocialBrush(SocialRed),
                 .TextWrapping = TextWrapping.Wrap, .Margin = New Thickness(0, 6, 0, 0)})
         End If
         RepCard.Child = RepPanel
@@ -897,10 +1041,29 @@ Public Class ClubLifePanel
             For Each Token As JToken In MyEvents
                 Dim Item As JObject = TryCast(Token, JObject)
                 If Item Is Nothing Then Continue For
-                Dim State As String = If(Equals(Item("checkedIn")?.ToObject(Of Boolean)(), True), "已签到",
+                Dim Checked As Boolean = Equals(Item("checkedIn")?.ToObject(Of Boolean)(), True)
+                '签到完成后把签到时间一并显示出来，避免「已签到」看起来像没记录
+                Dim State As String = If(Checked, "已签到",
                                          If(Equals(Item("missed")?.ToObject(Of Boolean)(), True), "未签到", "待签到"))
-                HistoryPanel.Children.Add(BuildMeta(FormatStamp(Item("starts_at")) & " · " &
-                                                    If(Item("title")?.ToString(), "社团活动") & " · " & State))
+                If Checked AndAlso Item("checked_in_at")?.Type <> JTokenType.Null Then
+                    State &= "（" & FormatStamp(Item("checked_in_at")) & "）"
+                End If
+                Dim Line As New StackPanel With {
+                    .Orientation = Orientation.Horizontal, .Margin = New Thickness(0, 2, 0, 2)}
+                Line.Children.Add(BuildMeta(FormatStamp(Item("starts_at")) & " · " &
+                                            If(Item("title")?.ToString(), "社团活动") & " · " & State))
+                If Equals(Item("checkinOpen")?.ToObject(Of Boolean)(), True) Then
+                    Dim BtnGo As New MyButton With {
+                        .Text = "正在签到 · 去签到", .Height = 24, .MinWidth = 128,
+                        .Margin = New Thickness(10, 0, 0, 0),
+                        .ColorType = MyButton.ColorState.Highlight,
+                        .VerticalAlignment = System.Windows.VerticalAlignment.Center}
+                    Dim EId As String = If(Item("id")?.ToString(), "")
+                    Dim ETitle As String = If(Item("title")?.ToString(), "")
+                    AddHandler BtnGo.Click, Sub() ShowCheckinDialog(EId, ETitle)
+                    Line.Children.Add(BtnGo)
+                End If
+                HistoryPanel.Children.Add(Line)
             Next
         End If
         HistoryCard.Child = HistoryPanel

@@ -6,19 +6,6 @@
     PanScroll="PanBack">
     <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="PanMain" Margin="25,10">
-            <local:MyCard Margin="0,15" Title="社团账号" x:Name="PanAccount">
-                <StackPanel Margin="25,40,19,20">
-                    <TextBlock x:Name="LabAccount" Text="尚未登录社团官网" TextWrapping="Wrap" FontSize="12.5" />
-                    <StackPanel x:Name="PanDeviceCode" Orientation="Horizontal" Margin="0,12,0,0" Visibility="Collapsed">
-                        <TextBlock x:Name="LabDeviceCode" FontSize="24" FontWeight="Bold" VerticalAlignment="Center" />
-                        <local:MyButton x:Name="BtnCopyCode" Text="复制" Height="28" Margin="14,0,0,0" Click="CopyDeviceCode" />
-                    </StackPanel>
-                    <UniformGrid Columns="2" Margin="0,12,0,0">
-                        <local:MyButton x:Name="BtnDeviceLogin" Text="登录社团官网" Height="32" Margin="0,0,4,0" Click="StartDeviceLogin" />
-                        <local:MyButton x:Name="BtnOpenDevice" Text="打开授权页" Height="32" Margin="4,0,0,0" Click="OpenDevicePage" />
-                    </UniformGrid>
-                </StackPanel>
-            </local:MyCard>
             <local:MyCard Margin="0,15" Title="好友">
                 <StackPanel Margin="25,40,19,20">
                     <StackPanel x:Name="PanTools" Orientation="Horizontal" />
