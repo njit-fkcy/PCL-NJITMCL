@@ -21,9 +21,9 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 | 项 | 值 |
 |---|---|
 | 组织 | [njit-fkcy](https://github.com/njit-fkcy) |
-| 最新版本 | **v1.8.3** |
-| Release 数量 | 35（v1.0.3 ～ v1.8.3） |
-| 每个 Release 资产 | 10 个（9 个运行文件 + 1 个完整 zip） |
+| 最新版本 | **v2.0.3** |
+| Release 数量 | 39（v1.0.3 ～ v2.0.3） |
+| 每个 Release 资产 | 2.0.x：8 个（7 个运行文件 + 1 个完整 zip）；1.x：10 个（含 `wg.exe`、`wireguard.exe`） |
 | 源码 | 本仓库 [`source/`](source/)（每版一个 tag `v<版本>-source`；内网镜像 `_launcher/_source/v<版本>/`） |
 | 更新清单 | https://njitmc.club/update/njitmcl.json |
 | 官网 | https://njitmc.club |
@@ -32,7 +32,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 ## 源码
 
 启动器源码在本仓库 [`source/`](source/) 目录，与发行版同仓，随版本打 tag `v<版本>-source`
-（当前 `v1.8.3-source`）。
+（当前 `v2.0.3-source`）。
 
 - 技术栈：VB.NET + WPF，.NET Framework 4.8.1，旧式 `.vbproj`
 - 编译：必须用 VS2022 BuildTools 的 MSBuild（先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`），详见 `source/README.md`
@@ -83,7 +83,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 - 启动器启动时读取 `https://njitmc.club/update/njitmcl.json`，比较其中的 `versionCode` 与本机内置值。
 - **只比 `versionCode`**：`NewCode <= VersionCode` 即判定为最新。因此同一版本号重新构建不会被已更新用户收到，需要替换构建时必须递增版本号。
-- 清单里每个文件带多个下载源（1.6.1 为 4 个）与 `sha256`，客户端按顺序回退，校验通过才落盘。
+- 清单里每个文件带多个下载源（2.0.x 为 4 个）与 `sha256`，客户端按顺序回退，校验通过才落盘。
 - 1.6.1 起下载层带超时（连接 8s / 读写 20s）与单源重试：某个源返回 5xx 或超时会换下一个源，4xx 直接放弃该源，不再因为一个源失败而整次更新失败。
 - 清单与官网下载页由官网服务器（`njitmc.club`）托管；GitHub 只负责存放二进制。
 
@@ -91,6 +91,10 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 | 版本 | Tag | 主程序 | 资产 | 发布 |
 |---|---|---|---|---|
+| 2.0.3 | `v2.0.3` | 6.0 MB | 8 | 2026-11-13 |
+| 2.0.2 | `v2.0.2` | 6.0 MB | 8 | 2026-11-13 |
+| 2.0.1 | `v2.0.1` | 6.0 MB | 8 | 2026-11-13 |
+| 2.0.0 | `v2.0.0` | 6.0 MB | 8 | 2026-11-13 |
 | 1.8.3 | `v1.8.3` | 5.8 MB | 10 | 2026-11-10 |
 | 1.8.2 | `v1.8.2` | 5.8 MB | 10 | 2026-11-10 |
 | 1.8.1 | `v1.8.1` | 5.8 MB | 10 | 2026-11-10 |
