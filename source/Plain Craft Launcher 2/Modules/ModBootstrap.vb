@@ -30,8 +30,43 @@ Public Module ModBootstrap
         End Try
         EnableUnsafeHeaderParsing()
         RemoveLegacyCopies(Base)
-        ExtractAll(Folder)
+        ExtractAll(Folder)          '先补齐，再清理：清理时要靠 PCL\ 里的文件判断哪些是旧的
+        CleanObsoleteFiles(Base)
         AddHandler AppDomain.CurrentDomain.AssemblyResolve, Function(Sender, Args) ResolveAssembly(Args, Folder)
+    End Sub
+
+    ''' <summary>
+    ''' 清理历次更新攒下的垃圾：更新器把被替换的文件改名成 .old 却从不删除，
+    ''' 每更新一次就多一代备份。既然同名的正式文件已经能启动成功，那一份备份就没用了。
+    ''' </summary>
+    Private Sub CleanObsoleteFiles(Base As String)
+        '更新后的 .old：正式文件已存在就删；属于已知库名的也删（那些文件现在住在 PCL\）
+        Try
+            Dim Known As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each Name As String In LibNames
+                Known.Add(Name)
+            Next
+            Known.Add(IO.Path.GetFileName(Assembly.GetExecutingAssembly().Location))
+            For Each Old As String In Directory.GetFiles(Base, "*.old")
+                Dim Stem As String = IO.Path.GetFileName(Old).Substring(0, IO.Path.GetFileName(Old).Length - 4)
+                Dim Live As String = Old.Substring(0, Old.Length - 4)
+                If Known.Contains(Stem) OrElse File.Exists(Live) Then File.Delete(Old)
+            Next
+        Catch ex As Exception
+        End Try
+        '1.x 遗留的组网组件目录：代码里已没有任何地方启动 wg.exe
+        Try
+            Dim WireGuard As String = IO.Path.Combine(Base, "WireGuard")
+            If Directory.Exists(WireGuard) Then Directory.Delete(WireGuard, True)
+        Catch ex As Exception
+        End Try
+        '根目录的 XML 文档：2.1.0 起统一放在 PCL\，根目录这份是旧的
+        Try
+            Dim ExeBase As String = IO.Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().Location)
+            Dim Stale As String = IO.Path.Combine(Base, ExeBase & ".xml")
+            If File.Exists(Stale) AndAlso File.Exists(IO.Path.Combine(Base, "PCL", "PCL-NJITMCL.xml")) Then File.Delete(Stale)
+        Catch ex As Exception
+        End Try
     End Sub
 
     ''' <summary>
