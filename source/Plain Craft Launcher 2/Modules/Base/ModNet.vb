@@ -393,6 +393,19 @@ Retry:
         Public Id As Integer
         Public Url As String
         Public FailCount As Integer
+        ''' <summary>
+        ''' 抖动失败后的冷却结束时间：冷却期内优先用别的源，冷却结束后自动回来重试。
+        ''' </summary>
+        Public CooldownUntil As Long = 0
+        ''' <summary>
+        ''' 本轮连续抖动的起始时间，用于判断「重试满 5 秒仍失败」才切换源。
+        ''' </summary>
+        Public FirstFailAt As Long = 0
+        ''' <summary>
+        ''' GitHub 主站不可达时，由社团服务器解析出的数据面签名地址（缓存用）。
+        ''' </summary>
+        Public ResolvedUrl As String = ""
+        Public ResolvedStamp As Long = 0
         Public Ex As Exception
         ''' <summary>
         ''' 若该下载源正在进行强制单线程下载，标记这个唯一的线程。
@@ -644,14 +657,19 @@ Retry:
             If Id >= Sources.Count OrElse Id < 0 Then Id = 0
             SyncLock LockSource
                 If HasAvailableSource(False) Then
-                    '存在多线程可用源
-                    Dim CurrentSource As NetSource = Sources(Id)
-                    While CurrentSource.IsFailed
-                        Id += 1
-                        If Id >= Sources.Count Then Id = 0
-                        CurrentSource = Sources(Id)
-                    End While
-                    Return CurrentSource
+                    Dim Now As Long = GetTimeMs()
+                    '先按顺序找既没被禁用、也不在冷却期的源
+                    For Offset As Integer = 0 To Sources.Count - 1
+                        Dim Candidate As NetSource = Sources((Id + Offset) Mod Sources.Count)
+                        If Not Candidate.IsFailed AndAlso Candidate.CooldownUntil <= Now Then Return Candidate
+                    Next
+                    '全部在冷却：选最早结束冷却的那个，保证仍会继续重试，不会卡死
+                    Dim Best As NetSource = Nothing
+                    For Offset As Integer = 0 To Sources.Count - 1
+                        Dim Candidate As NetSource = Sources((Id + Offset) Mod Sources.Count)
+                        If Not Candidate.IsFailed AndAlso (Best Is Nothing OrElse Candidate.CooldownUntil < Best.CooldownUntil) Then Best = Candidate
+                    Next
+                    Return Best
                 ElseIf SourcesOnce.Any Then
                     '仅存在单线程可用源
                     Return SourcesOnce.First
@@ -878,7 +896,15 @@ StartSingleThreadDownload:
                     For Each Thread As NetThread In Threads
                         If Thread.State = NetState.Canceled AndAlso Thread.DownloadUndone > 0 Then
                             StartPosition = Thread.DownloadStart + Thread.DownloadDone
-                            StartSource = GetSource(Thread.Source.Id + 1)
+                            '连续失败不足 5 秒：仍优先在原源上重试，只做很短退避，不切去备用源
+                            If Not Thread.Source.IsFailed AndAlso
+                               (Thread.Source.FirstFailAt = 0 OrElse GetTimeMs() - Thread.Source.FirstFailAt < 5000) Then
+                                Dim WaitMs As Long = Thread.Source.CooldownUntil - GetTimeMs()
+                                If WaitMs > 0 AndAlso WaitMs <= 600 Then Threading.Thread.Sleep(CInt(WaitMs))
+                                StartSource = Thread.Source
+                            Else
+                                StartSource = GetSource(Thread.Source.Id)
+                            End If
                             GoTo StartThread
                         End If
                     Next
@@ -943,11 +969,31 @@ StartThread:
             '部分下载源真的特别慢，并且只需要一个请求，例如 Ping 为 20s，如果增长太慢，就会造成类似 2.5s 5s 7.5s 10s 12.5s... 的极大延迟
             '延迟过长会导致某些特别慢的链接迟迟不被掐死
             Dim Timeout As Integer = Math.Min(Math.Max(ConnectAverage, 15000) * (1 + Th.Source.FailCount), 30000)
+            '失败后的重试：GitHub 断流通常几秒就恢复，用短超时快速失败快速重连，别空等 15~30 秒
+            If Th.Source.FailCount > 0 AndAlso IsGithubDirectUrl(Th.Source.Url) Then
+                Timeout = Math.Min(Timeout, 5000)
+            End If
             Th.State = NetState.Connecting
             Try
                 Dim HttpDataCount As Integer = 0
                 If SourcesOnce.Contains(Th.Source) AndAlso Th <> Th.Source.SingleThread Then GoTo SourceBreak
-                HttpRequest = New HttpRequestMessage(HttpMethod.Get, Th.Source.Url)
+                Dim RequestUrl As String = Th.Source.Url
+                'GitHub Release 一律先换数据面签名地址（只换地址，流量仍走本机直连）
+                If RequestUrl.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase) Then
+                    If Th.Source.ResolvedUrl <> "" AndAlso GetTimeMs() - Th.Source.ResolvedStamp < 240000L Then
+                        RequestUrl = Th.Source.ResolvedUrl
+                    Else
+                        Dim Resolved As String = ResolveGithubAssetUrl(RequestUrl)
+                        '解析失败时退回直连，保证社团服务器不可用时仍能下载
+                        If Resolved <> "" Then
+                            Th.Source.ResolvedUrl = Resolved
+                            Th.Source.ResolvedStamp = GetTimeMs()
+                            RequestUrl = Resolved
+                            Logger.Info($"{LocalName}：已改用 GitHub 数据面签名地址")
+                        End If
+                    End If
+                End If
+                HttpRequest = New HttpRequestMessage(HttpMethod.Get, RequestUrl)
                 SecretHeadersSign(Th.Source.Url, HttpRequest, SimulateBrowserHeaders)
                 CancelToken = New CancellationTokenSource(Timeout)
                 If Not Th.IsFirstThread Then HttpRequest.Headers.Range = New Headers.RangeHeaderValue(Th.DownloadStart, Nothing)
@@ -1037,7 +1083,9 @@ NotSupportRange:
                     Dim DeltaTime = GetTimeMs() - Th.LastReceiveTime
                     If DeltaTime > 100000000 Then DeltaTime = 1 '避免时间刻反转导致出现极大值
                     If RealDataCount > 0 Then
-                        '有数据
+                        '有数据：该源已经恢复，清掉冷却与连续失败计时，后续继续优先用它
+                        Th.Source.CooldownUntil = 0
+                        Th.Source.FirstFailAt = 0
                         If Th.DownloadDone = 0 Then
                             '第一次接受到数据
                             Th.State = NetState.Downloading
@@ -1111,6 +1159,21 @@ SourceBreak:
             Next
             Th.State = NetState.Canceled
             Th.Source.Ex = ex
+            '失败后先短退避再重试：累计不足 5 秒仍回原源，满 5 秒才让位给备用源
+            If Not IsMergeFailure Then
+                Dim Now As Long = GetTimeMs()
+                If ex.IsBadNetwork OrElse TypeOf ex Is IOException OrElse TypeOf ex Is TimeoutException Then
+                    If Th.Source.FirstFailAt = 0 Then Th.Source.FirstFailAt = Now
+                    If Now - Th.Source.FirstFailAt >= 5000 Then
+                        Th.Source.CooldownUntil = Now + 30000
+                    Else
+                        Th.Source.CooldownUntil = Now + 500
+                    End If
+                ElseIf Th.Source.CooldownUntil <= Now Then
+                    '非抖动类异常（如「发送请求时出错」）：同样给 500ms 退避，避免毫秒级紧密重试
+                    Th.Source.CooldownUntil = Now + 500
+                End If
+            End If
             '根据情况判断，是否在多线程下禁用下载源（连续错误过多，或不支持断点续传）
             Dim IsRangeNotSupported As Boolean = TypeOf ex Is RangeNotSupportedException OrElse ex.Message.Contains("(416)")
             If IsMergeFailure OrElse IsRangeNotSupported OrElse
@@ -1979,5 +2042,28 @@ FinishExCatch:
             End If
         End Function
     End Sub
+
+    ''' <summary>是否为 GitHub Release 直链（中转地址不在此列，具体前缀由网站后台配置）。</summary>
+    Public Function IsGithubDirectUrl(Url As String) As Boolean
+        If String.IsNullOrWhiteSpace(Url) Then Return False
+        Return Url.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    ''' <summary>
+    ''' GitHub 主站不可达时，让社团服务器代取一次 302，返回数据面的签名地址。
+    ''' 只中继地址，不中继流量。
+    ''' </summary>
+    Public Function ResolveGithubAssetUrl(Url As String) As String
+        Try
+            Dim Api As String = "https://njitmc.club/api/launcher/gh-resolve?url=" & Uri.EscapeDataString(Url)
+            Dim Raw As String = NetRequestByClient(Api, RequireJson:=True, Timeout:=15000, MakeLog:=False)
+            Dim Json As Newtonsoft.Json.Linq.JObject = Raw.DeserializeJson()
+            Dim Result As String = If(Json Is Nothing, "", If(Json("url")?.ToString(), ""))
+            If Result.StartsWith("https://", StringComparison.OrdinalIgnoreCase) Then Return Result
+        Catch ex As Exception
+            Logger.Warn(ex, "解析 GitHub 数据面地址失败")
+        End Try
+        Return ""
+    End Function
 
 End Module

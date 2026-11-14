@@ -142,6 +142,10 @@ RetryCacheCheck:
             ModSiteAuth.RegisterProtocol()
             ModSiteAuth.HandlePendingProtocol()
             ModGithubProxy.EnsureStarted()
+            '后台定期复检 release 资产 IP 的吞吐，避免死守一个刚好失效的 IP
+            ModGithubIp.StartHealthLoop()
+            '后台静默预热整合包源：先探校内，不通再预热 GitHub 优选
+            ModNJIT.WarmPackSources()
             Logger.Info($"系统编码：{Encoding.Default.HeaderName} ({Encoding.Default.CodePage}, GBK={IsGBKEncoding})")
             Logger.Info($"管理员权限：{WindowsUtils.HasAdminRole()}")
             '检测异常环境

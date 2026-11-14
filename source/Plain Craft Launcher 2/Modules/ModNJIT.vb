@@ -268,26 +268,131 @@ Public Module ModNJIT
         Return If(TryCast(Json("servers"), JArray), New JArray())
     End Function
 
+#Region "整合包源预热"
+
+    ''' <summary>校内整合包源是否可达（后台预热结果）。</summary>
+    Public Property CampusSourceReachable As Boolean = False
+
+    ''' <summary>是否已完成一次校内源探测；未探测时不能把 CampusSourceReachable=False 当成「不可用」。</summary>
+    Public Property CampusSourceProbed As Boolean = False
+
+    Private ReadOnly WarmLock As New Object()
+
+    ''' <summary>预热测得的 GitHub 直链速度（字节/秒）。中转不再测速。</summary>
+    Public Property PackDirectSpeed As Double = 0
+
+    ''' <summary>直链测速用的样本文件（跟随当前版本号）。</summary>
+    Private ReadOnly WarmTestUrl As String = $"https://github.com/njit-fkcy/PCL-NJITMCL/releases/download/v{VersionBaseName}/PCL-NJITMCL.exe"
+
+    Private Property PackWarmStamp As Long = 0
+    Private Const PackWarmTtlMs As Long = 600000L
+    ''' <summary>直链测不通时的预热有效期：短一些，网络恢复后能尽快重新测速。</summary>
+    Private Const PackWarmFailTtlMs As Long = 60000L
+
+    ''' <summary>作废预热结果（下载失败时调用），下次选源会重新测直链。</summary>
+    Public Sub InvalidatePackWarm()
+        SyncLock WarmLock
+            PackWarmStamp = 0
+        End SyncLock
+    End Sub
+
+    ''' <summary>后台静默预热：先探校内源，通就直接用校内；不通才预热 GitHub 优选并测一次直链。</summary>
+    Public Sub WarmPackSources()
+        RunInNewThread(
+        Sub()
+            Try
+                Dim Reachable As Boolean = ProbeCampusSource()
+                SyncLock WarmLock
+                    CampusSourceReachable = Reachable
+                    CampusSourceProbed = True
+                    PackWarmStamp = Environment.TickCount
+                End SyncLock
+                If Reachable Then
+                    Logger.Info("整合包源预热：校内源可用，优先校内")
+                    Return
+                End If
+                '先测直链：走社团服务器换签名地址，不依赖 github.com 主站，启动初期就能出结果
+                Dim Direct As Double = MeasurePackSource(WarmTestUrl, 15000)
+                If Direct < 1048576.0 Then
+                    Dim Retry As Double = MeasurePackSource(WarmTestUrl, 15000)
+                    If Retry > Direct Then Direct = Retry
+                End If
+                SyncLock WarmLock
+                    PackDirectSpeed = Direct
+                End SyncLock
+                Logger.Info($"整合包源预热：GitHub 直链 {Direct / 1024:F0} KB/s")
+                '再预热 IP 优选，供后续本地代理连接使用
+                Logger.Info("整合包源预热：开始 GitHub IP 优选")
+                ModGithubIp.GetRanked("github.com")
+                ModGithubIp.GetRanked("release-assets.githubusercontent.com")
+            Catch ex As Exception
+                Logger.Warn(ex, "整合包源预热失败")
+            End Try
+        End Sub, "PackWarm")
+    End Sub
+
+    ''' <summary>探测校内源是否可达：3 秒内能拿到响应就算通。</summary>
+    Private Function ProbeCampusSource() As Boolean
+        Try
+            Dim Req As Net.HttpWebRequest = DirectCast(Net.WebRequest.Create("https://wg.njit-fkcy.top/modpacks/"), Net.HttpWebRequest)
+            Req.Method = "HEAD"
+            Req.Timeout = 3000
+            Req.ReadWriteTimeout = 3000
+            Using Resp As Net.HttpWebResponse = DirectCast(Req.GetResponse(), Net.HttpWebResponse)
+                Return CInt(Resp.StatusCode) < 500
+            End Using
+        Catch
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>是否为校园内网的整合包源。</summary>
+    Public Function IsCampusUrl(Url As String) As Boolean
+        If String.IsNullOrWhiteSpace(Url) Then Return False
+        Return Url.IndexOf("wg.njit-fkcy.top", StringComparison.OrdinalIgnoreCase) >= 0
+    End Function
+
+#End Region
+#End Region
+
+    Private Function PackWarmValid() As Boolean
+        SyncLock WarmLock
+            If PackWarmStamp <= 0 Then Return False
+            Dim Ttl As Long = If(PackDirectSpeed > 0, PackWarmTtlMs, PackWarmFailTtlMs)
+            Return CLng(Environment.TickCount) - PackWarmStamp < Ttl
+        End SyncLock
+    End Function
+
     ''' <summary>
-    ''' 实测单个下载源的速率（字节/秒），失败返回 0。只取前 1 MB 计时。
+    ''' 实测单个下载源的速率（字节/秒），失败返回 0。取前 4 MB 计时，连接与跳转耗时不计入。
+    ''' 仅用于 GitHub 直链；中转不再测速。
     ''' </summary>
     Public Function MeasurePackSource(Url As String, TimeoutMs As Integer) As Double
         Try
-            Dim Req As Net.HttpWebRequest = DirectCast(Net.WebRequest.Create(Url), Net.HttpWebRequest)
+            Dim Target As String = Url
+            If Target.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase) Then
+                Dim Resolved As String = ResolveGithubAssetUrl(Target)
+                '一律走签名地址：解析不出来说明社团服务器或数据面当时不可用，再去打被墙的主站只会白等
+                If Resolved = "" Then Return 0
+                Target = Resolved
+            End If
+            Dim Req As Net.HttpWebRequest = DirectCast(Net.WebRequest.Create(Target), Net.HttpWebRequest)
             Req.Method = "GET"
+            Req.Proxy = ModGithubProxy.Proxy
             Req.Timeout = TimeoutMs
             Req.ReadWriteTimeout = TimeoutMs
             Req.AllowAutoRedirect = True
             Req.UserAgent = $"PCL2/{VersionBaseName}.{CInt(BuildType)}"
-            Req.AddRange(0, 1048575)
-            Dim Watch As Stopwatch = Stopwatch.StartNew()
+            Req.AddRange(0, 4194303)
             Using Resp As Net.HttpWebResponse = DirectCast(Req.GetResponse(), Net.HttpWebResponse)
                 Dim Code As Integer = CInt(Resp.StatusCode)
                 If Code < 200 OrElse Code >= 400 Then Return 0
+                '建连、302 跳转、TLS 握手不计入：这里要的是吞吐，不是首字节延迟
+                Dim Watch As Stopwatch = Stopwatch.StartNew()
                 Using Stream As IO.Stream = Resp.GetResponseStream()
                     Dim Buffer(65535) As Byte
                     Dim ReadTotal As Long = 0
-                    Do While ReadTotal < 1048576 AndAlso Watch.ElapsedMilliseconds < TimeoutMs
+                    Do While ReadTotal < 4194304 AndAlso Watch.ElapsedMilliseconds < TimeoutMs
                         Dim Count As Integer = Stream.Read(Buffer, 0, Buffer.Length)
                         If Count <= 0 Then Exit Do
                         ReadTotal += Count
@@ -303,32 +408,42 @@ Public Module ModNJIT
     End Function
 
     ''' <summary>
-    ''' 并行实测各源速率，返回下载顺序：第一个源（校园内网）可用时优先，其余按速率从高到低。
+    ''' 返回下载顺序：只测 GitHub 直链。直链够快就排第一，否则按服务端下发的顺序走中转。
+    ''' 中转不再由客户端测速，改由网站后台统一配置与排序。
     ''' </summary>
     Public Function RankPackSources(Urls As List(Of String)) As List(Of String)
         If Urls Is Nothing OrElse Urls.Count = 0 Then Return New List(Of String)
-        Dim Speeds(Urls.Count - 1) As Double
-        Dim Tasks As New List(Of Task)
+
+        Dim DirectIndex As Integer = -1
         For Index = 0 To Urls.Count - 1
-            Dim Current As Integer = Index
-            Tasks.Add(Task.Run(Sub() Speeds(Current) = MeasurePackSource(Urls(Current), 5000)))
+            If IsGithubDirectUrl(Urls(Index)) Then
+                DirectIndex = Index
+                Exit For
+            End If
         Next
-        Try
-            Task.WaitAll(Tasks.ToArray(), 5600)
-        Catch
-            ' 超时就按已完成的结果排序
-        End Try
-        For Index = 0 To Urls.Count - 1
-            Logger.Info($"整合包源测速：{Urls(Index)} → {Speeds(Index) / 1024:F0} KB/s")
-        Next
+        '没有 GitHub 直链：完全按服务端顺序
+        If DirectIndex < 0 Then Return New List(Of String)(Urls)
+
+        '直链速度优先复用预热结果，预热过期再现场测一次
+        Dim DirectSpeed As Double = If(PackWarmValid(), PackDirectSpeed, MeasurePackSource(Urls(DirectIndex), 20000))
+
         Dim Ordered As New List(Of String)
-        If Speeds(0) > 0 Then Ordered.Add(Urls(0))
-        Dim Rest = Enumerable.Range(0, Urls.Count).
-            Where(Function(I) Not (I = 0 AndAlso Speeds(0) > 0)).
-            OrderByDescending(Function(I) Speeds(I))
-        For Each Index In Rest
-            Ordered.Add(Urls(Index))
-        Next
+        '测不出速度（0）说明是测速链路本身没通，不代表直链不能下：这种情况仍先试直链
+        If DirectSpeed <= 0 OrElse DirectSpeed >= 2097152.0 Then
+            '直链可用或测不出：直链排第一，其余按服务端顺序
+            Ordered.Add(Urls(DirectIndex))
+            For Each One As String In Urls
+                If One <> Urls(DirectIndex) Then Ordered.Add(One)
+            Next
+            Logger.Info($"整合包选源：GitHub 直链 {DirectSpeed / 1024:F0} KB/s，直链优先")
+        Else
+            '直链确实偏慢：按服务端顺序先走中转，直链放最后兜底
+            For Each One As String In Urls
+                If One <> Urls(DirectIndex) Then Ordered.Add(One)
+            Next
+            Ordered.Add(Urls(DirectIndex))
+            Logger.Info($"整合包选源：GitHub 直链 {DirectSpeed / 1024:F0} KB/s，改用服务端下发的中转")
+        End If
         Return Ordered
     End Function
 
@@ -342,7 +457,5 @@ Public Module ModNJIT
             End Using
         End Using
     End Function
-
-#End Region
 
 End Module

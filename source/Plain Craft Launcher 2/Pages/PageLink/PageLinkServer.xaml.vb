@@ -10,7 +10,7 @@ Public Class PageLinkServer
     Private PackLoaded As Boolean = False
     Private PackDownloading As Boolean = False
     '当前下载使用的 PCL 原生下载加载器，取消时直接中断
-    Private PackLoader As LoaderDownload = Nothing
+    Private PackLoader As LoaderBase = Nothing
     '用户是否已经请求取消（测速阶段也要能取消）
     Private PackCancelRequested As Boolean = False
     '当前下载对应的服务器条目键，用于把进度写到它自己那一行，而不是只写在卡片顶部
@@ -915,6 +915,8 @@ Public Class PageLinkServer
             If PackCurrentKey = "" OrElse Not PackProgressMap.TryGetValue(PackCurrentKey, Item) Then Return
             Item.Box.Visibility = Visibility.Visible
             Item.Loading.Text = Text
+            '原生下载进度条：显示百分比
+            Item.Loading.ShowProgress = True
             Item.Loading.State = Loader
         End Sub)
     End Sub
@@ -976,26 +978,54 @@ Public Class PageLinkServer
     Private Sub DownloadByLoader(Urls As List(Of String), Target As String, ExpectedHash As String, Text As String)
         Dim Checker As New FileChecker With {.MinSize = 1024}
         If Not String.IsNullOrWhiteSpace(ExpectedHash) Then Checker.Hash = ExpectedHash
-        Dim Task As New LoaderDownload("社团整合包 " & GetUuid() & "#",
-                                       New List(Of NetFile) From {New NetFile(Urls, Target, Checker)})
+        Dim Download As New LoaderDownload("下载整合包文件",
+                                           New List(Of NetFile) From {New NetFile(Urls, Target, Checker)}) With {.ProgressWeight = 10, .Block = True}
+        Dim Task As New LoaderCombo(Of String)(Text, New List(Of LoaderBase) From {Download})
         RunLoader(Task, Text)
     End Sub
+
+    ''' <summary>把字节/秒格式化为 KB/s 或 MB/s。</summary>
+    Private Function FormatBytesSpeed(BytesPerSecond As Long) As String
+        If BytesPerSecond >= 1048576L Then Return (BytesPerSecond / 1048576.0).ToString("F1") & " MB/s"
+        Dim Kb As Long = BytesPerSecond \ 1024L
+        If Kb < 1L Then Kb = 1L
+        Return Kb.ToString & " KB/s"
+    End Function
 
     ''' <summary>
     ''' 启动 PCL 原生下载加载器并等待结束，进度写到当前条目。
     ''' </summary>
-    Private Sub RunLoader(Task As LoaderDownload, Text As String)
+    Private Sub RunLoader(Task As LoaderCombo(Of String), Text As String)
         PackLoader = Task
         SetPackLoader(Task, Text)
         Task.Start()
+        '登记到 PCL 任务管理页：左侧总进度 / 下载速度 / 剩余文件，右侧任务列表
+        LoaderTaskbarAdd(Task)
+        RunInUi(
+        Sub()
+            FrmMain.BtnExtraDownload.ShowRefresh()
+            FrmMain.PageChange(FormMain.PageType.TaskManager)
+        End Sub)
         '取消可能发生在加载器创建之前，启动后补一次
         If PackCancelRequested Then Task.Cancel()
         Do While Task.State = LoadState.Loading
-            Threading.Thread.Sleep(50)
+            '每 400ms 把当前下载速度刷到进度行，和下载页看到的数字一致
+            Dim Speed As Long = NetManager.Speed
+            If Speed > 0 Then
+                RunInUi(
+                Sub()
+                    Dim Item As PackProgressUi = Nothing
+                    If PackCurrentKey = "" OrElse Not PackProgressMap.TryGetValue(PackCurrentKey, Item) Then Return
+                    Item.Loading.Text = Text & "（" & FormatBytesSpeed(Speed) & "）"
+                End Sub)
+            End If
+            Threading.Thread.Sleep(400)
         Loop
         PackLoader = Nothing
         If Task.State = LoadState.Canceled Then Throw New OperationCanceledException()
         If Task.State = LoadState.Failed Then
+            '下载失败说明预热时的测速结果可能已过期：作废预热，下次重试重新选源
+            ModNJIT.InvalidatePackWarm()
             Throw New Exception(If(Task.Error Is Nothing, "下载失败", Task.Error.Message), Task.Error)
         End If
     End Sub
@@ -1071,7 +1101,8 @@ Public Class PageLinkServer
             If Expected <> "" Then Checker.Hash = Expected
             Files.Add(New NetFile(Urls, PartFolder & PartName, Checker))
         Next
-        RunLoader(New LoaderDownload("社团存档 " & GetUuid() & "#", Files), "正在下载存档")
+        Dim Download As New LoaderDownload("下载存档文件", Files) With {.ProgressWeight = 10, .Block = True}
+        RunLoader(New LoaderCombo(Of String)("社团存档 " & GetUuid() & "#", New List(Of LoaderBase) From {Download}), "正在下载存档")
         SetPackStatus("正在拼接存档分片……")
         Using Output As New IO.FileStream(Target, IO.FileMode.Create, IO.FileAccess.Write)
             For Each Item As JObject In Ordered
@@ -1136,6 +1167,15 @@ Public Class PageLinkServer
             Try
                 Directory.CreateDirectory(PathTemp & "Cache\Saves\")
                 Dim Ready As Boolean = False
+                '整包源通常只有校园内网：预热已确认校内不可达时别死等超时，直接用分片
+                Dim CampusOnly As Boolean = Urls.Count > 0
+                For Each One As String In Urls
+                    If Not ModNJIT.IsCampusUrl(One) Then CampusOnly = False
+                Next
+                If CampusOnly AndAlso HasParts AndAlso ModNJIT.CampusSourceProbed AndAlso Not ModNJIT.CampusSourceReachable Then
+                    Logger.Info("存档整包源仅校园内网且当前不可达，改用分片下载")
+                    Urls.Clear()
+                End If
                 '优先整包源（通常是校园内网，速度最快）
                 If Urls.Count > 0 Then
                     SetPackStatus("正在测速选择下载源……")
