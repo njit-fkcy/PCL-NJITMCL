@@ -1,4 +1,4 @@
-''' <summary>
+﻿''' <summary>
 ''' NJIT MCL 自建更新推送：从校内站点拉取版本清单并更新启动器。
 ''' </summary>
 Public Module ModUpdate
@@ -17,6 +17,26 @@ Public Module ModUpdate
 
     ''' <summary>当前是否为强制更新：不询问是否更新，下载完成后自动重启替换。</summary>
     Private ForceUpdating As Boolean = False
+
+    ''' <summary>
+    ''' 更新档位，对应清单的 level 字段：
+    ''' normal 普通（可选）、urgent 紧急（强制）、incompatible 不兼容（强制）。
+    ''' </summary>
+    Private UpdateLevel As String = "normal"
+
+    ''' <summary>档位中文名，用于弹窗标题与失败提示。</summary>
+    Private ReadOnly Property UpdateLevelName As String
+        Get
+            Select Case UpdateLevel
+                Case "urgent"
+                    Return "紧急更新"
+                Case "incompatible"
+                    Return "不兼容更新"
+                Case Else
+                    Return "更新"
+            End Select
+        End Get
+    End Property
 
     ''' <summary>
     ''' 启动时静默检查更新。
@@ -40,8 +60,13 @@ Public Module ModUpdate
             End If
             Dim VersionName As String = If(Json("version")?.ToString(), "")
             Dim Changelog As String = If(Json("changelog")?.ToString(), "（无更新说明）")
-            Dim IsForce As Boolean = Equals(Json("force")?.ToObject(Of Boolean)(), True)
-            '关闭自动检查的用户只接收强制更新
+            '档位：normal / urgent / incompatible；老清单只有 force 布尔，true 折成 urgent
+            Dim LevelRaw As String = If(Json("level")?.ToString(), "").Trim().ToLowerInvariant()
+            Dim LegacyForce As Boolean = Equals(Json("force")?.ToObject(Of Boolean)(), True)
+            Dim Level As String = If(LevelRaw = "normal" OrElse LevelRaw = "urgent" OrElse LevelRaw = "incompatible",
+                                     LevelRaw, If(LegacyForce, "urgent", "normal"))
+            Dim IsForce As Boolean = Level = "urgent" OrElse Level = "incompatible"
+            '关闭自动检查的用户只接收强制档（紧急 / 不兼容）
             If RespectSetting AndAlso Not IsForce AndAlso Not Settings.Get(Of Boolean)("SystemUpdateCheck") Then Return
             Dim Files As JArray = TryCast(Json("files"), JArray)
             Dim UseFiles As Boolean = Files IsNot Nothing AndAlso Files.Count > 0
@@ -56,12 +81,16 @@ Public Module ModUpdate
             Logger.Info($"发现新版本：{VersionName}（{NewCode}），当前 {VersionBaseName}（{VersionCode}）")
             RunInUi(
             Sub()
+                UpdateLevel = Level
                 ForceUpdating = IsForce
                 If IsForce Then
-                    '强制更新：不提供跳过，下载完成后自动重启替换
+                    '紧急 / 不兼容：不提供跳过，下载完成后自动重启替换
+                    Dim Reason As String = If(Level = "incompatible",
+                        "当前版本与服务端接口不兼容，继续使用会出现联机与更新异常。",
+                        "本次为紧急更新，包含需要立即生效的修复。")
                     MyMsgBox(
-                        $"本次更新为强制更新，需要更新到 {VersionName}（当前 {VersionBaseName}）。{vbCrLf}{vbCrLf}{Changelog}{vbCrLf}{vbCrLf}点击「开始更新」后将自动下载，并在完成后重启启动器。",
-                        "强制更新", "开始更新")
+                        $"{Reason}{vbCrLf}{vbCrLf}需要更新到 {VersionName}（当前 {VersionBaseName}）。{vbCrLf}{vbCrLf}{Changelog}{vbCrLf}{vbCrLf}点击「开始更新」后将自动下载，并在完成后重启启动器。",
+                        UpdateLevelName, "开始更新")
                 Else
                     Dim Result As Integer = MyMsgBox(
                         $"发现新版本 {VersionName}（当前 {VersionBaseName}）{vbCrLf}{vbCrLf}{Changelog}{vbCrLf}{vbCrLf}是否立即更新？",
@@ -112,7 +141,7 @@ Public Module ModUpdate
         Catch ex As Exception
             Logger.Error(ex, "下载更新失败")
             If ForceUpdating Then
-                RunInUi(Sub() Hint("强制更新失败：" & ex.Message &
+                RunInUi(Sub() Hint(UpdateLevelName & "失败：" & ex.Message &
                     "。请检查网络后重启启动器重试，或到官网下载完整包覆盖", HintType.Red))
             Else
                 RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
@@ -263,7 +292,7 @@ Public Module ModUpdate
         Catch ex As Exception
             Logger.Error(ex, "下载更新失败")
             If ForceUpdating Then
-                RunInUi(Sub() Hint("强制更新失败：" & ex.Message &
+                RunInUi(Sub() Hint(UpdateLevelName & "失败：" & ex.Message &
                     "。请检查网络后重启启动器重试，或到官网下载完整包覆盖", HintType.Red))
             Else
                 RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
@@ -366,7 +395,7 @@ Public Module ModUpdate
         Catch ex As Exception
             Logger.Error(ex, "下载更新失败")
             If ForceUpdating Then
-                RunInUi(Sub() Hint("强制更新失败：" & ex.Message &
+                RunInUi(Sub() Hint(UpdateLevelName & "失败：" & ex.Message &
                     "。请检查网络后重启启动器重试，或到官网下载完整包覆盖", HintType.Red))
             Else
                 RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
