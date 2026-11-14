@@ -54,10 +54,26 @@ Public Module ModBootstrap
             Next
         Catch ex As Exception
         End Try
-        '1.x 遗留的组网组件目录：代码里已没有任何地方启动 wg.exe
+        '1.x 遗留的组网组件：代码里已没有任何地方启动 wg.exe
         Try
             Dim WireGuard As String = IO.Path.Combine(Base, "WireGuard")
             If Directory.Exists(WireGuard) Then Directory.Delete(WireGuard, True)
+        Catch ex As Exception
+        End Try
+        '1.x 把 wg.exe / wireguard.exe 直接放在根目录，2.1.0 起已不再打包这两个文件；
+        'PCL\ 里同名的也一并清掉，避免有人解压旧完整包时又带回来
+        For Each Folder As String In {Base, IO.Path.Combine(Base, "PCL")}
+            For Each Name As String In {"wg.exe", "wireguard.exe"}
+                Try
+                    Dim Stale As String = IO.Path.Combine(Folder, Name)
+                    If File.Exists(Stale) Then File.Delete(Stale)
+                Catch ex As Exception
+                End Try
+            Next
+        Next
+        Try
+            Dim Nested As String = IO.Path.Combine(Base, "PCL", "WireGuard")
+            If Directory.Exists(Nested) Then Directory.Delete(Nested, True)
         Catch ex As Exception
         End Try
         '根目录的 XML 文档：2.1.0 起统一放在 PCL\，根目录这份是旧的

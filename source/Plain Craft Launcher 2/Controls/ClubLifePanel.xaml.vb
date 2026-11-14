@@ -88,13 +88,36 @@ Public Class ClubLifePanel
     Private Sub RefreshAll()
         If Loading Then Return
         If Not ModSocial.IsLoggedIn() Then
-            LabState.Text = "尚未授权启动器"
+            LabState.Text = "尚未登录社团官网"
             PanBody.Children.Clear()
-            PanBody.Children.Add(SocialLabel("使用活动报名、投票与个人中心前，需要先完成官网授权。"))
+            PanBody.Children.Add(SocialLabel("使用活动报名、投票与个人中心前，需要先用启动器账号登录社团官网。"))
             Dim BtnAuth As New MyButton With {
-                .Text = "去官网授权启动器", .Height = 32, .MinWidth = 168, .Margin = New Thickness(0, 10, 0, 0),
+                .Text = "登录社团官网", .Height = 32, .MinWidth = 168, .Margin = New Thickness(0, 10, 0, 0),
                 .ColorType = MyButton.ColorState.Highlight}
-            AddHandler BtnAuth.Click, Sub() OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
+            AddHandler BtnAuth.Click,
+                Sub()
+                    If Not ModNJIT.IsAccountAllowed() Then
+                        Hint("请先在启动器登录正版或 MUA 账号", HintType.Red)
+                        Return
+                    End If
+                    RunInNewThread(
+                    Sub()
+                        Try
+                            Dim Authorized As Boolean = ModSocial.AuthorizeLauncher()
+                            RunInUi(
+                            Sub()
+                                If Authorized Then
+                                    Hint("已登录社团官网：" & ModSocial.SocialName, HintType.Green)
+                                    RefreshAll()
+                                Else
+                                    Hint("登录未完成，请稍后重试", HintType.Red)
+                                End If
+                            End Sub)
+                        Catch ex As Exception
+                            RunInUi(Sub() Hint("登录社团官网失败：" & ex.Message, HintType.Red))
+                        End Try
+                    End Sub, "ClubAuth")
+                End Sub
             PanBody.Children.Add(BtnAuth)
             RaiseEvent CheckinAvailableChanged(New JArray)
             Return

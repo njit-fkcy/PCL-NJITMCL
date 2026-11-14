@@ -134,19 +134,35 @@ Public Module ModNJIT
     End Sub
 
     ''' <summary>
-    ''' 把正版登录凭证交给社团网站，返回一次性登录码。必须在后台线程调用。
+    ''' 把启动器里的登录凭证交给社团网站，返回一次性登录码。必须在后台线程调用。
+    ''' 正版与 MUA 身份可以同时带上，网站分别校验后自动绑定到同一个账号。
     ''' </summary>
-    Public Function RequestSiteLogin(AccessToken As String, Uuid As String, UserName As String) As String
-        If String.IsNullOrWhiteSpace(AccessToken) Then Throw New Exception("正版登录凭证为空")
-        Dim Request As New JObject(
-            New JProperty("accessToken", AccessToken),
-            New JProperty("uuid", Uuid),
-            New JProperty("name", UserName))
+    Public Function RequestSiteLogin(MojangAccess As String, MojangUuid As String, MojangName As String,
+                                     Optional MuaAccess As String = "", Optional MuaUuid As String = "",
+                                     Optional MuaName As String = "", Optional MuaUserName As String = "") As String
+        Dim Request As New JObject()
+        If Not String.IsNullOrWhiteSpace(MojangAccess) Then
+            Request("mojang") = New JObject(
+                New JProperty("accessToken", MojangAccess),
+                New JProperty("uuid", If(MojangUuid, "")),
+                New JProperty("name", If(MojangName, "")))
+        End If
+        If Not String.IsNullOrWhiteSpace(MuaAccess) Then
+            Request("mua") = New JObject(
+                New JProperty("accessToken", MuaAccess),
+                New JProperty("uuid", If(MuaUuid, "")),
+                New JProperty("name", If(MuaName, "")),
+                New JProperty("username", If(MuaUserName, "")))
+        End If
+        If Request.Count = 0 Then Throw New Exception("请先在启动器登录正版或 MUA 账号")
         Dim JsonText As String = NetRequestByClient(ClubHomepage & "/api/account/launcher-login", HttpMethod.Post,
             Content:=Request.ToString(Newtonsoft.Json.Formatting.None),
             Headers:={{"Accept-Language", "zh-CN"}},
             ContentType:="application/json; charset=utf-8", RequireJson:=True, Timeout:=20000)
         Dim Json As JObject = JsonText.DeserializeJson()
+        'MUA 的 refresh 会轮换 accessToken，网站把新值带回来，写回缓存避免下次失效
+        Dim NewMua As String = Json("muaAccessToken")?.ToString()
+        If Not String.IsNullOrWhiteSpace(NewMua) Then Settings.Set("CacheAuthAccess", NewMua)
         Dim Code As String = Json("code")?.ToString()
         If String.IsNullOrWhiteSpace(Code) Then Throw New Exception("网站没有返回登录码")
         Return Code

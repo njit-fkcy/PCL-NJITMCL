@@ -16,7 +16,7 @@ Public Class PageLinkMine
         RefreshAll()
     End Sub
 
-    '授权进行中，避免连点重复申请设备码
+    '登录进行中，避免连点重复请求
     Private AuthRunning As Boolean = False
 
     Private Sub RefreshAll()
@@ -164,7 +164,7 @@ Public Class PageLinkMine
             Panel.Children.Add(BtnLogout)
         Else
             Dim BtnAuth As New MyButton With {
-                .Text = "授权启动器", .Height = 30, .MinWidth = 112, .Margin = New Thickness(8, 0, 0, 0),
+                .Text = "登录社团官网", .Height = 30, .MinWidth = 112, .Margin = New Thickness(8, 0, 0, 0),
                 .ColorType = MyButton.ColorState.Highlight}
             AddHandler BtnAuth.Click, Sub() StartMineAuth(False)
             Panel.Children.Add(BtnAuth)
@@ -173,51 +173,39 @@ Public Class PageLinkMine
     End Function
 
     ''' <summary>
-    ''' 与启动页同一条授权路径：正版登录态优先直授权，没有正版才申请设备码。
+    ''' 与启动页同一条登录路径：用正版或 MUA 登录态直接换取设备令牌。
     ''' Reauth 为 True 时先退出当前社团账号再授权。
     ''' </summary>
     Private Sub StartMineAuth(Reauth As Boolean)
         If AuthRunning Then Return
         If Reauth Then
-            If MyMsgBox("重新授权会先退出当前社团账号（正在进行的房间会关闭），再用正版身份（优先）或设备码重新授权。继续吗？",
-                        "重新授权", "继续", "取消") <> 1 Then Return
+            If MyMsgBox("重新登录会先退出当前社团账号（正在进行的房间会关闭），再用正版（优先）或 MUA 身份重新登录。继续吗？",
+                        "重新登录", "继续", "取消") <> 1 Then Return
             ModSocial.Logout()
         End If
         AuthRunning = True
         PanContent.Children.Clear()
-        PanContent.Children.Add(SocialLabel("正在授权启动器……"))
+        PanContent.Children.Add(SocialLabel("正在登录社团官网……"))
         RunInNewThread(
         Sub()
             Try
-                Dim Authorized As Boolean = ModSocial.AuthorizeLauncher(
-                    "NJIT MCL 联机页",
-                    Sub(UserCode As String)
-                        RunInUi(
-                        Sub()
-                            Try
-                                Clipboard.SetText(UserCode)
-                            Catch
-                            End Try
-                            OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
-                            Hint("授权码 " & UserCode & " 已复制，请在网页登录后粘贴确认", HintType.Green)
-                        End Sub)
-                    End Sub)
+                Dim Authorized As Boolean = ModSocial.AuthorizeLauncher()
                 RunInUi(
                 Sub()
                     AuthRunning = False
                     If Authorized Then
-                        Hint("已授权：" & ModSocial.SocialName, HintType.Green)
+                        Hint("已登录：" & ModSocial.SocialName, HintType.Green)
                     Else
-                        Hint("授权未完成，请重新点击「授权启动器」", HintType.Red)
+                        Hint("登录未完成，请重新点击「登录社团官网」", HintType.Red)
                     End If
                     RefreshAll()
                 End Sub)
             Catch ex As Exception
-                Logger.Warn(ex, "授权启动器失败")
+                Logger.Warn(ex, "登录社团官网失败")
                 RunInUi(
                 Sub()
                     AuthRunning = False
-                    Hint("授权失败：" & ModSocial.FriendlyError(ex), HintType.Red)
+                    Hint("登录失败：" & ModSocial.FriendlyError(ex), HintType.Red)
                     RefreshAll()
                 End Sub)
             End Try

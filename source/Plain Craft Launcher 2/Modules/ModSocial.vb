@@ -127,12 +127,12 @@ Public Module ModSocial
             End If
             Return
         End If
-        Throw New Exception("请先官网授权启动器：启动页 →「社团生活」卡片 → 授权启动器")
+        Throw New Exception("请先登录社团官网：启动页 →「社团生活」卡片 → 登录社团官网")
     End Sub
 
     ''' <summary>
     ''' 有正版登录态时直接用正版凭证换取设备令牌（同时把正版身份绑定到网站账号）。
-    ''' 没有正版登录态返回 False，由调用方改用设备码授权。
+    ''' 没有正版登录态返回 False，由调用方继续尝试 MUA。
     ''' </summary>
     Public Function AuthorizeWithMojang() As Boolean
         If IsLoggedIn() Then Return True
@@ -148,76 +148,52 @@ Public Module ModSocial
     End Function
 
     ''' <summary>
-    ''' 统一授权入口：优先用正版登录态换取设备令牌，没有正版登录态才走设备码。
-    ''' 必须在后台线程调用；ShowUserCode 在申请到设备码时触发（用于复制到剪贴板并提示）。
+    ''' 有 MUA 登录态时直接用 MUA accessToken 换取设备令牌（同时把 MUA 身份绑定到网站账号）。
+    ''' 没有 MUA 登录态返回 False，由调用方提示先登录账号。
     ''' </summary>
-    ''' <param name="DeviceName">设备名，用于官网「授权设备」列表。</param>
-    ''' <param name="ShowUserCode">拿到用户码后的回调（可为 Nothing）。</param>
-    ''' <param name="CancelFlag">返回 True 时终止等待（可为 Nothing）。</param>
+    Public Function AuthorizeWithMua() As Boolean
+        If IsLoggedIn() Then Return True
+        If Not ModNJIT.IsMuaLoggedIn() Then Return False
+        Dim Access As String = Settings.Get(Of String)("CacheAuthAccess")
+        If String.IsNullOrWhiteSpace(Access) Then Return False
+        Dim Result As JObject = Api("POST", "/token", New JObject(
+            New JProperty("provider", "mua"),
+            New JProperty("accessToken", Access),
+            New JProperty("uuid", Settings.Get(Of String)("CacheAuthUuid")),
+            New JProperty("name", Settings.Get(Of String)("CacheAuthName")),
+            New JProperty("username", Settings.Get(Of String)("CacheAuthUsername"))), NeedToken:=False)
+        ApplyDeviceToken(Result)
+        Return IsLoggedIn()
+    End Function
+
+    ''' <summary>
+    ''' 统一授权入口：用正版或 MUA 登录态直接换取设备令牌，两者都没有时提示先登录。
+    ''' 必须在后台线程调用。
+    ''' </summary>
     ''' <returns>True 表示已取得设备令牌。</returns>
-    Public Function AuthorizeLauncher(DeviceName As String, Optional ShowUserCode As Action(Of String) = Nothing,
-                                      Optional CancelFlag As Func(Of Boolean) = Nothing) As Boolean
+    Public Function AuthorizeLauncher() As Boolean
         If IsLoggedIn() Then Return True
         '有正版登录态：直接换取设备令牌，无需用户操作
         Try
             If AuthorizeWithMojang() Then Return True
         Catch ex As Exception
-            Logger.Warn(ex, "正版直授权失败，改用设备码")
+            Logger.Warn(ex, "正版直授权失败")
         End Try
-        Dim Result As JObject = RequestDeviceCode(DeviceName)
-        Dim DeviceValue As String = If(Result("deviceCode")?.ToString(), "")
-        Dim UserCode As String = If(Result("userCode")?.ToString(), "")
-        If String.IsNullOrWhiteSpace(DeviceValue) OrElse String.IsNullOrWhiteSpace(UserCode) Then
-            Throw New Exception("申请设备码失败，请稍后重试")
-        End If
-        If ShowUserCode IsNot Nothing Then ShowUserCode(UserCode)
-        Dim Interval As Integer = If(Result("interval")?.ToObject(Of Integer)(), 3) * 1000
-        Dim Deadline As Date = Date.Now.AddSeconds(If(Result("expiresIn")?.ToObject(Of Integer)(), 600))
-        While Date.Now < Deadline
-            If CancelFlag IsNot Nothing AndAlso CancelFlag() Then Return False
-            Thread.Sleep(Interval)
-            If CancelFlag IsNot Nothing AndAlso CancelFlag() Then Return False
-            Dim Poll As JObject = Nothing
-            Try
-                Poll = PollDevice(DeviceValue)
-            Catch ex As Exception
-                '单次轮询网络抖动不终止流程，继续下一轮
-                Logger.Warn(ex, "设备码轮询失败，继续等待")
-                Continue While
-            End Try
-            If If(Poll("status")?.ToString(), "") = "approved" Then
-                ApplyDeviceToken(Poll)
-                Return IsLoggedIn()
-            End If
-        End While
-        Return False
+        '只有 MUA 登录态：用 MUA accessToken 直换，同样无需用户操作
+        Try
+            If AuthorizeWithMua() Then Return True
+        Catch ex As Exception
+            Logger.Warn(ex, "MUA 直授权失败")
+        End Try
+        Throw New Exception("请先在启动器登录正版或 MUA 账号")
     End Function
 
-    ''' <summary>
-    ''' 申请设备码：启动器显示用户码，用户在官网确认授权。
-    ''' 已登录正版时一并带上正版凭证，官网授权时自动绑定该身份。
-    ''' </summary>
-    Public Function RequestDeviceCode(DeviceName As String) As JObject
-        Dim Payload As New JObject(New JProperty("deviceName", DeviceName))
-        Dim Access As String = Settings.Get(Of String)("CacheMsV2Access")
-        If Not String.IsNullOrWhiteSpace(Access) Then
-            Payload("mojang") = New JObject(
-                New JProperty("accessToken", Access),
-                New JProperty("uuid", Settings.Get(Of String)("CacheMsV2Uuid")),
-                New JProperty("name", Settings.Get(Of String)("CacheMsV2Name")))
-        End If
-        Return Api("POST", "/device/code", Payload, NeedToken:=False)
-    End Function
-
-    ''' <summary>轮询设备码状态：pending / approved / 过期。</summary>
-    Public Function PollDevice(DeviceCode As String) As JObject
-        Return Api("POST", "/device/token",
-                   New JObject(New JProperty("deviceCode", DeviceCode)), NeedToken:=False)
-    End Function
-
-    ''' <summary>保存设备码授权结果（写入设备令牌与账号信息）。</summary>
+    ''' <summary>保存授权结果（写入设备令牌与账号信息）。</summary>
     Public Sub ApplyDeviceToken(Result As JObject)
         SaveTokenResult(Result)
+        'MUA 的 refresh 会轮换 accessToken，中控把新值带回来时写回缓存
+        Dim NewMua As String = Result("muaAccessToken")?.ToString()
+        If Not String.IsNullOrWhiteSpace(NewMua) Then Settings.Set("CacheAuthAccess", NewMua)
         SocialName = If(Result("username")?.ToString(), SocialName)
         Dim Account As JObject = TryCast(Result("account"), JObject)
         If Account IsNot Nothing Then MyAccountId = If(Account("accountId")?.ToString(), MyAccountId)

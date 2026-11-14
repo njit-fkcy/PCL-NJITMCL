@@ -102,26 +102,59 @@ Public Module ModSiteAuth
                     Thread.Sleep(200)
                 Loop
                 ShowSiteLoginBar()
-                Dim LoginData As New McLoginMs With {
-                    .OAuthRefreshToken = Settings.Get(Of String)("CacheMsV2OAuthRefresh"),
-                    .UserName = Settings.Get(Of String)("CacheMsV2Name")}
-                If String.IsNullOrWhiteSpace(LoginData.OAuthRefreshToken) Then Throw New Exception("请先在启动器登录微软账号")
-                McLoginMsLoader.Start(LoginData, IsForceRestart:=True)
-                Do While McLoginMsLoader.State = LoadState.Loading
-                    Thread.Sleep(50)
-                Loop
-                If McLoginMsLoader.State <> LoadState.Finished OrElse McLoginMsLoader.Error IsNot Nothing Then
-                    Throw New Exception(If(McLoginMsLoader.Error?.Message, "读取正版登录信息失败"))
+                '正版：有刷新令牌时重新拉取最新凭证，失败则退回本地缓存
+                Dim MojangAccess As String = Settings.Get(Of String)("CacheMsV2Access")
+                Dim MojangUuid As String = Settings.Get(Of String)("CacheMsV2Uuid")
+                Dim MojangName As String = Settings.Get(Of String)("CacheMsV2Name")
+                If Not String.IsNullOrWhiteSpace(Settings.Get(Of String)("CacheMsV2OAuthRefresh")) Then
+                    Dim LoginData As New McLoginMs With {
+                        .OAuthRefreshToken = Settings.Get(Of String)("CacheMsV2OAuthRefresh"),
+                        .UserName = Settings.Get(Of String)("CacheMsV2Name")}
+                    McLoginMsLoader.Start(LoginData, IsForceRestart:=True)
+                    Do While McLoginMsLoader.State = LoadState.Loading
+                        Thread.Sleep(50)
+                    Loop
+                    If McLoginMsLoader.State = LoadState.Finished AndAlso McLoginMsLoader.Error Is Nothing Then
+                        Dim Output As McLoginResult = McLoginMsLoader.Output
+                        If Not String.IsNullOrWhiteSpace(Output.AccessToken) Then
+                            MojangAccess = Output.AccessToken
+                            MojangUuid = Output.Uuid
+                            MojangName = Output.Name
+                        End If
+                    Else
+                        Logger.Warn("读取正版登录信息失败，改用本地缓存：" & If(McLoginMsLoader.Error?.Message, ""))
+                    End If
                 End If
-                Dim Output As McLoginResult = McLoginMsLoader.Output
-                If String.IsNullOrWhiteSpace(Output.AccessToken) Then Throw New Exception("没有取得正版登录凭证")
-                Dim Code As String = ModNJIT.RequestSiteLogin(Output.AccessToken, Output.Uuid, Output.Name)
+                'MUA：登录过就带上皮肤站凭证，网站会调 MUA 复核后自动绑定
+                Dim MuaAccess As String = ""
+                Dim MuaUuid As String = ""
+                Dim MuaName As String = ""
+                Dim MuaUserName As String = ""
+                If ModNJIT.IsMuaLoggedIn() Then
+                    MuaAccess = Settings.Get(Of String)("CacheAuthAccess")
+                    MuaUuid = Settings.Get(Of String)("CacheAuthUuid")
+                    MuaName = Settings.Get(Of String)("CacheAuthName")
+                    MuaUserName = Settings.Get(Of String)("CacheAuthUsername")
+                End If
+                If String.IsNullOrWhiteSpace(MojangAccess) AndAlso String.IsNullOrWhiteSpace(MuaAccess) Then
+                    Throw New Exception("请先在启动器登录正版或 MUA 账号")
+                End If
+                Dim Code As String = ModNJIT.RequestSiteLogin(MojangAccess, MojangUuid, MojangName,
+                                                              MuaAccess, MuaUuid, MuaName, MuaUserName)
                 OpenWebsite(ModNJIT.ClubHomepage & "/#mc-login?code=" & Uri.EscapeDataString(Code))
                 HideSiteLoginBar()
-                RunInUi(Sub() Hint("正版账号验证成功，已打开浏览器完成登录", HintType.Green))
+                RunInUi(Sub() Hint("账号验证成功，已打开浏览器完成登录", HintType.Green))
             Catch ex As Exception
                 HideSiteLoginBar()
-                RunInUi(Sub() Hint("登录社团网站失败：" & ex.Message, HintType.Red))
+                Dim Reason As String = If(ex.Message, "")
+                If Reason.Contains("MUA 登录已失效") Then
+                    'MUA 服务端已作废缓存的凭证（refresh 会轮换 token），清掉标记让用户重新登录
+                    Settings.Set("MuaLoggedIn", False)
+                    Settings.Set("CacheAuthAccess", "")
+                    RunInUi(Sub() Hint("MUA 登录已失效，请在启动器重新登录 MUA 账号后再试", HintType.Red))
+                Else
+                    RunInUi(Sub() Hint("登录社团网站失败：" & Reason, HintType.Red))
+                End If
             End Try
         End Sub, "SiteLogin")
     End Sub

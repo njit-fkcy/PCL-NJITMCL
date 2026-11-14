@@ -5,7 +5,7 @@ Imports System.Windows.Threading
 Public Class PageLaunchRight
     Implements IRefreshable, IDispatcherUnhandledException
 
-    '授权启动器是否进行中
+    '登录社团官网是否进行中
     Private DeviceAuthRunning As Boolean = False
 
     Private Sub Init() Handles Me.Loaded
@@ -79,8 +79,8 @@ Public Class PageLaunchRight
             PanDeviceAuth.Visibility = System.Windows.Visibility.Collapsed
         Else
             PanDeviceAuth.Visibility = System.Windows.Visibility.Visible
-            LabDeviceAuth.Text = "请先官网授权启动器，才可以使用社团功能"
-            BtnDeviceAuth.Text = "授权启动器"
+            LabDeviceAuth.Text = "请先登录社团官网，才可以使用社团功能"
+            BtnDeviceAuth.Text = "登录社团官网"
             BtnDeviceAuth.IsEnabled = Not DeviceAuthRunning
         End If
         '授权状态变化后同步顶级导航的未读消息数
@@ -88,7 +88,7 @@ Public Class PageLaunchRight
     End Sub
 
     ''' <summary>
-    ''' 授权启动器：已正版登录时直接用正版凭证换取设备令牌；否则申请设备码走官网授权页。
+    ''' 登录社团官网：用正版或 MUA 登录态直接换取设备令牌。
     ''' </summary>
     Public Sub StartDeviceAuth(sender As Object, e As MouseButtonEventArgs)
         If DeviceAuthRunning Then Return
@@ -99,37 +99,24 @@ Public Class PageLaunchRight
         End If
         DeviceAuthRunning = True
         BtnDeviceAuth.IsEnabled = False
-        BtnDeviceAuth.Text = "授权中……"
+        BtnDeviceAuth.Text = "登录中……"
         RunInNewThread(
         Sub()
             Try
-                '统一流程：正版登录态优先直授权，没有正版才申请设备码
-                Dim Authorized As Boolean = ModSocial.AuthorizeLauncher(
-                    "NJIT MCL 启动页",
-                    Sub(UserCode As String)
-                        RunInUi(
-                        Sub()
-                            Try
-                                Clipboard.SetText(UserCode)
-                            Catch
-                            End Try
-                            OpenWebsite(ModNJIT.ClubHomepage & "/launcher-device")
-                            Hint("授权码 " & UserCode & " 已复制，请在网页登录后粘贴确认", HintType.Green)
-                        End Sub)
-                    End Sub)
+                Dim Authorized As Boolean = ModSocial.AuthorizeLauncher()
                 RunInUi(
                 Sub()
                     If Authorized Then
-                        Hint("已授权启动器：" & ModSocial.SocialName, HintType.Green)
+                        Hint("已登录社团官网：" & ModSocial.SocialName, HintType.Green)
                         RefreshDeviceAuth()
                         If PanClubLifeBody IsNot Nothing Then PanClubLifeBody.RefreshData()
                     Else
-                        Hint("授权码已过期，请重新点击「授权启动器」", HintType.Red)
+                        Hint("登录未完成，请稍后重试", HintType.Red)
                     End If
                 End Sub)
             Catch ex As Exception
-                Logger.Warn(ex, "授权启动器失败")
-                RunInUi(Sub() Hint("授权失败：" & ex.Message, HintType.Red))
+                Logger.Warn(ex, "登录社团官网失败")
+                RunInUi(Sub() Hint("登录社团官网失败：" & ModSocial.FriendlyError(ex), HintType.Red))
             Finally
                 DeviceAuthRunning = False
                 RunInUi(Sub() RefreshDeviceAuth())
