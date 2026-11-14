@@ -62,8 +62,9 @@ Public Class PageLinkRoom
         RoomRefreshTimer.Stop()
     End Sub
 
+    ''' <summary>房间页停留时的轮询间隔。房主关房或改为不公开后，其他端最多这么多秒发现。</summary>
     Private ReadOnly RoomRefreshTimer As New System.Windows.Threading.DispatcherTimer With {
-        .Interval = TimeSpan.FromSeconds(20)}
+        .Interval = TimeSpan.FromSeconds(8)}
 
     Private Sub RoomRefreshTimer_Tick(sender As Object, e As EventArgs)
         If LabStatus Is Nothing Then Return
@@ -355,6 +356,7 @@ Public Class PageLinkRoom
             MyRoomCode = ""
             HostPassword = ""
             UpdatePublicButton()
+            Hint("房间已被服务器回收，访客已无法加入，请重新创建", HintType.Red)
         End If
         '已加入的房间已结束：自动退出，清空进服地址并停止上报
         If JoinedRoomCode <> "" Then
@@ -370,6 +372,8 @@ Public Class PageLinkRoom
                 JoinedPassword = ""
                 ModSocial.SetJoinerServer("")
                 RunInNewThread(Sub() ModSocial.StopPresence(), "SocialLeave")
+                '房主关房或改成不公开后，房间里的人不会收到推送，只能靠这里的轮询发现
+                Hint("房主已关闭房间或改为不公开，已自动退出", HintType.Red)
             End If
         End If
 

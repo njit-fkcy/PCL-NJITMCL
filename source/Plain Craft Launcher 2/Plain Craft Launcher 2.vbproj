@@ -1,4 +1,4 @@
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -234,6 +234,7 @@
     <Compile Include="Modules\ModSiteAuth.vb" />
     <Compile Include="Modules\ModGithubIp.vb" />
     <Compile Include="Modules\ModPlugin.vb" />
+    <Compile Include="Modules\ModBootstrap.vb" />
     <Compile Include="Modules\ModSocial.vb" />
     <Compile Include="Modules\ModSocialUi.vb" />
     <Compile Include="Modules\ModServerList.vb" />
@@ -803,7 +804,6 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.5.2">
@@ -1018,6 +1018,27 @@
     <Resource Include="Images\Heads\HerobrineXia.png" />
     <Resource Include="Images\Club\NJITMC.png" />
 
+  </ItemGroup>
+  <!--
+    依赖库内嵌：由 build.ps1 第一遍编译产出，第二遍带 -p:LibDir=<bin> 编进来。
+    运行期由 ModBootstrap 释放到 PCL\，因此发布包根目录只留 exe 与 exe.config。
+  -->
+  <ItemGroup Condition="'$(LibDir)' != ''">
+    <EmbeddedResource Include="$(LibDir)\PCLCS.dll">
+      <LogicalName>PCLCS.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(LibDir)\MeloongCore.dll">
+      <LogicalName>MeloongCore.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(LibDir)\MeloongCore.Wpf.dll">
+      <LogicalName>MeloongCore.Wpf.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(LibDir)\Microsoft.Win32.Registry.dll">
+      <LogicalName>Microsoft.Win32.Registry.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(LibDir)\PCL-NJITMCL.xml">
+      <LogicalName>PCL-NJITMCL.xml</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
 </Project>

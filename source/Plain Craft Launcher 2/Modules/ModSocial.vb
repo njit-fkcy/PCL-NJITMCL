@@ -866,19 +866,42 @@ Public Module ModSocial
     Private HostedRoomCode As String = ""
 
     ''' <summary>
-    ''' frpc 本地路径。
+    ''' frpc 本地路径。放在 PCL\ 里，根目录保持「只有一个 exe」。
     ''' </summary>
     Public ReadOnly Property FrpcPath As String
         Get
-            Return IO.Path.Combine(IO.Path.GetDirectoryName(PathExe), "frpc.exe")
+            Return IO.Path.Combine(IO.Path.GetDirectoryName(PathExe), "PCL", "frpc.exe")
         End Get
     End Property
+
+    ''' <summary>旧版本把 frpc 下在 exe 同级；搬进 PCL\，省一次重新下载。</summary>
+    Private Sub MigrateLegacyFrpc()
+        Try
+            Dim Old As String = IO.Path.Combine(IO.Path.GetDirectoryName(PathExe), "frpc.exe")
+            If Not IO.File.Exists(Old) Then Return
+            If IO.File.Exists(FrpcPath) Then
+                IO.File.Delete(Old)
+                Return
+            End If
+            IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(FrpcPath))
+            IO.File.Move(Old, FrpcPath)
+            Logger.Info("已把 frpc.exe 从根目录移入 PCL\")
+        Catch ex As Exception
+            Logger.Warn(ex, "迁移 frpc.exe 失败")
+        End Try
+    End Sub
 
     ''' <summary>
     ''' 确保 frpc 存在；缺失时从内网或 GitHub 下载。
     ''' </summary>
     Public Sub EnsureFrpc()
+        MigrateLegacyFrpc()
         If FileUtils.Exists(FrpcPath) AndAlso New FileInfo(FrpcPath).Length > 8L * 1024 * 1024 Then Return
+        '上次中断留下的半截文件先清掉，别让它一直躺在目录里
+        Try
+            If IO.File.Exists(FrpcPath & ".tmp") Then IO.File.Delete(FrpcPath & ".tmp")
+        Catch ex As Exception
+        End Try
         RunInUi(Sub() Hint("正在下载联机组件……"))
         Dim LastError As Exception = Nothing
         For Each Url As String In FrpcUrls

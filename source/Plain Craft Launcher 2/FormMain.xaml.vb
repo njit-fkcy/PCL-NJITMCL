@@ -1483,10 +1483,14 @@ Public Class FormMain
     ''' </summary>
     Public Sub RefreshSocialModeNav()
         If BtnTitleSelect2 Is Nothing Then Return
-        Dim Enable As Boolean = ModSocial.SocialModeEnabled
-        BtnTitleSelect2.IsEnabled = Enable
-        BtnTitleSelect2.Opacity = If(Enable, 1, 0.4)
-        BtnTitleSelect2.ToolTip = If(Enable, Nothing, "打开联机模式以使用")
+        '开联机模式只是前提；没登录统一通行证时进去也做不了任何事，入口同样置灰
+        Dim Allowed As Boolean = ModSocial.SocialModeEnabled
+        Dim LoggedIn As Boolean = ModSocial.IsLoggedIn()
+        Dim Enabled As Boolean = Allowed AndAlso LoggedIn
+        BtnTitleSelect2.IsEnabled = Enabled
+        BtnTitleSelect2.Opacity = If(Enabled, 1, 0.4)
+        BtnTitleSelect2.ToolTip = If(Enabled, Nothing,
+                                      If(Not Allowed, "打开联机模式以使用", "登录统一通行证后可使用联机"))
         '控件禁用时 WPF 默认不弹提示，需要显式允许
         ToolTipService.SetShowOnDisabled(BtnTitleSelect2, True)
     End Sub

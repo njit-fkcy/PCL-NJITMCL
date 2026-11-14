@@ -3,6 +3,14 @@ Imports System.Windows.Threading
 
 Public Class Application
 
+    ''' <summary>
+    ''' 依赖库释放必须早于 App.xaml 的资源字典解析，否则 MeloongCore.Wpf 找不到。
+    ''' 用共享构造而不是 Public Sub New —— 后者与 XAML 生成的构造函数签名冲突。
+    ''' </summary>
+    Shared Sub New()
+        ModBootstrap.Prepare()
+    End Sub
+
     '开始
     Private Sub Application_Startup(sender As Object, e As StartupEventArgs) Handles Me.Startup
         Try
