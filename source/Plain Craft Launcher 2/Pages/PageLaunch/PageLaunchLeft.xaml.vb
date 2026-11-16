@@ -664,9 +664,20 @@ Finish:
                 Return
             End If
             '联机协商（访客地址刷新、社团服务器地址探测）放后台执行，避免弱网时界面冻结；
-            'McLaunchStart 要求 UI 线程，协商完成后再回 UI 线程启动
-            If ModSocial.SocialModeEnabled Then
-                Hint("联机模式：正在协商进服地址……")
+            'McLaunchStart 要求 UI 线程，协商完成后再回 UI 线程启动。
+            '两处收窄（2026-11-15）：
+            '  1. 没有访客地址、实例也不指向社团服务器时（本地开世界的常见情形）压根不协商；
+            '  2. 提示改成 600ms 后才弹 —— 快速路径上不该先弹一句「正在协商」再干等。
+            Dim NeedNegotiate As Boolean = ModSocial.SocialModeEnabled AndAlso
+                (Not String.IsNullOrEmpty(ModSocial.JoinerServer) OrElse FrmLinkServer.MayNeedClubServer(McInstanceSelected))
+            If NeedNegotiate Then
+                Dim LateHint As New DispatcherTimer With {.Interval = TimeSpan.FromMilliseconds(600)}
+                AddHandler LateHint.Tick,
+                    Sub(sender As Object, e As EventArgs)
+                        DirectCast(sender, DispatcherTimer).Stop()
+                        Hint("联机模式：正在协商进服地址……")
+                    End Sub
+                LateHint.Start()
                 RunInNewThread(
                 Sub()
                     Dim ClubAddress As String = Nothing
@@ -684,6 +695,7 @@ Finish:
                     End Try
                     RunInUi(
                     Sub()
+                        LateHint.Stop()
                         If ClubAddress IsNot Nothing Then
                             If ClubAddress = "" Then
                                 Logger.Warn($"社团服务器不可达，取消启动：{McInstanceSelected?.Name}")

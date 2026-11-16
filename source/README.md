@@ -42,15 +42,18 @@
 
 ## 构建
 
-```powershell
-$env:MSBuildSDKsPath="C:\Program Files\dotnet\sdk\8.0.426\Sdks"
-$env:DOTNET_ROOT="C:\Program Files\dotnet"
-& "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe" `
-  "Plain Craft Launcher 2\Plain Craft Launcher 2.vbproj" -restore -t:Rebuild `
-  -p:Configuration=Release -p:MSBuildEnableWorkloadResolver=false
+编译与打包都在仓库**上一级**的 `tools\` 里（不进版本库），根目录没有重复脚本：
+
+```cmd
+tools\build-test.cmd                   一键出实机测试包：编译 → 收件 → 源码 → 说明 → 哈希 → zip
+tools\build.ps1                        正式发版的编译与打包（build-test.cmd 内部会调它）
 ```
 
-- 必须用 VS2022 BuildTools 的 MSBuild；`dotnet msbuild` / 裸 `msbuild` 会因缺 XAML 代码生成失败。
+- `build-test.cmd` 是双击用的壳，实际跑 `build-test.ps1`：先 `build.ps1 -NoWireGuard -NoZip -RequireFrpc` 编出
+  `dist\v<版本>\`，再把 `njit-online\dist` 的两个 jar 放进 `PCL\`，写 `测试说明.md`、`SHA256.txt`、`源码.zip`，最后打 `PCL-NJITMCL-<版本>-test.zip`。
+- `build.ps1` 自己找 BuildTools 的构建工具、自己挑带 `Sdks` 的 .NET SDK，NuGet 默认走华为云镜像（校园网），
+  第二遍带 `-p:LibDir` 把 `PCLCS.dll` / `MeloongCore*.dll` 内嵌进 exe —— 少了这一遍，exe 起来会提示缺少依赖库。
+- 手工等价命令见 `tools\build.ps1` 第 113、130 行；`dotnet msbuild` / 裸 `msbuild` 会因缺 XAML 代码生成失败。
 - 发布用正式工程；本机调试用 `Plain Craft Launcher 2.local.vbproj`（已排除出本仓库）。
 
 ## 发版

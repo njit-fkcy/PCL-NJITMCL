@@ -173,7 +173,8 @@ Public Class PageLinkServer
         If (Date.Now - PackFetchedAt).TotalSeconds > 20 Then
             Try
                 Dim FetchTask = Threading.Tasks.Task.Run(Function() FetchPackServers())
-                If FetchTask.Wait(4000) Then
+                ' 1600ms 够走一次正常往返；网络不对劲时不再把启动拖到 4 秒
+                If FetchTask.Wait(1600) Then
                     PackServers = FetchTask.Result
                     PackFetchedAt = Date.Now
                     CheckPackUpdates()
@@ -188,6 +189,23 @@ Public Class PageLinkServer
     End Function
 
     ''' <summary>
+    ''' 这个实例有没有可能指向社团服务器（整合包标记 / 自动进服地址）。
+    ''' 只读本地记录、不联网 —— 用来在启动前决定要不要去拉服务器列表。
+    ''' </summary>
+    Public Function MayNeedClubServer(Instance As McInstance) As Boolean
+        If Instance Is Nothing Then Return False
+        Try
+            Dim Target As String = Settings.Get(Of String)("VersionServerEnter", Instance)
+            If Not String.IsNullOrWhiteSpace(Target) Then Return True
+            Dim Mark As JObject = ModPackRevision.ReadMark(Instance.PathVersion)
+            If Mark IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(Mark("serverId")?.ToString()) Then Return True
+        Catch ex As Exception
+            Logger.Warn(ex, "判断实例是否指向社团服务器失败")
+        End Try
+        Return False
+    End Function
+
+    ''' <summary>
     ''' 联机模式启动前协商社团服务器地址。
     ''' 先按实例的整合包标记（serverId）找到所属服务器，找不到再按自动进服地址匹配；
     ''' 命中在营服务器后按 内网/组网 → 穿透 → 公网 的顺序探测，返回第一个可达地址。
@@ -195,6 +213,12 @@ Public Class PageLinkServer
     ''' </summary>
     Public Function ResolveClubServerForLaunch(Instance As McInstance) As String
         If Instance Is Nothing Then Return Nothing
+        ' 实例压根不指向社团服务器（本地开世界、自己填地址）时，
+        ' 别为了刷新服务器列表白等几秒
+        If Not MayNeedClubServer(Instance) Then
+            Logger.Info("实例未指向社团服务器，跳过启动前的服务器列表刷新")
+            Return Nothing
+        End If
         '启动前实时拉一次列表，避免拿到过期的地址；网络失败时沿用上次结果
         If (Date.Now - PackFetchedAt).TotalSeconds > 20 Then
             Try

@@ -1303,6 +1303,14 @@ NextInstance:
         Dim UseJLW As Boolean =
             Not Settings.Get(Of Boolean)("LaunchAdvanceDisableJLW") AndAlso Not Settings.Get(Of Boolean)("VersionAdvanceDisableJLW", McInstanceSelected) AndAlso
             Not IsGBKEncoding '即使游戏文件夹名称不含非 ASCII 字符，但玩家名等也可能出现中文，因此依然需要 JLW（#8739）
+        '联机进服校验代理：局域网世界的集成服务端跑在当前游戏进程里，随启动注入最稳。
+        '必须赶在 authlib 加载前装好；运行时 attach 对精简 JRE 不可用。
+        Dim OnlineAgent As String = IO.Path.Combine(IO.Path.GetDirectoryName(PathExe), "PCL", "njit-online-agent.jar")
+        If ModSocial.SocialModeEnabled AndAlso IO.File.Exists(OnlineAgent) Then
+            Args.Add("-javaagent:""" & OnlineAgent & """")
+            McLaunchLog("已注入联机进服校验代理")
+        End If
+
         If UseJLW AndAlso CustomArg.Contains("-javaagent") Then
             UseJLW = False
             McLaunchLog("由于使用了自定义 javaagent，已禁用 JLW，这可能导致游戏崩溃！", LogLevel.Warn)
@@ -2130,6 +2138,7 @@ IgnoreCustomSkin:
 
         '开始进程
         Dim GameProcess = StartProcess(StartInfo)
+        ModOnlineMode.RegisterGameProcess(GameProcess.Id)
         McLaunchLog("已启动游戏进程：" & McLaunchJavaSelected.JavaExePath)
         If Loader.IsCanceled Then
             McLaunchLog("由于取消启动，已强制结束游戏进程") '#1631

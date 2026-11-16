@@ -254,13 +254,13 @@ Public Module ModSocial
     ''' <summary>
     ''' 测量与中继节点的 TCP 连接耗时（毫秒），失败返回 -1。
     ''' </summary>
-    Public Function MeasureRelay(Host As String, Port As Integer) As Integer
+    Public Function MeasureRelay(Host As String, Port As Integer, Optional TimeoutMs As Integer = 3000) As Integer
         If String.IsNullOrWhiteSpace(Host) OrElse Port <= 0 Then Return -1
         Dim Watch As Stopwatch = Stopwatch.StartNew()
         Try
             Using Client As New Net.Sockets.TcpClient()
                 Dim Connecting As Task = Client.ConnectAsync(Host, Port)
-                If Not Connecting.Wait(3000) Then Return -1
+                If Not Connecting.Wait(TimeoutMs) Then Return -1
                 Watch.Stop()
                 Return CInt(Watch.ElapsedMilliseconds)
             End Using
@@ -632,7 +632,9 @@ Public Module ModSocial
             HostValue = HostValue.BeforeFirst(":")
         End If
         If HostValue = "" OrElse PortValue <= 0 Then Return False
-        Return MeasureRelay(HostValue, PortValue) >= 0
+        ' 探活只需要「能不能连上」，不需要测延迟：1.2 秒足够。
+        ' 启动前这一串探活原本各给 3 秒，网络不对劲时光等待就要好几秒。
+        Return MeasureRelay(HostValue, PortValue, 1200) >= 0
     End Function
 
     ''' <summary>
@@ -833,11 +835,45 @@ Public Module ModSocial
     Private VisitorLocalPort As Integer = 0
     Private HeartbeatTimer As Timer
     Private PresenceTimer As Timer
+
+    ''' <summary>
+    ''' 本次房间的中继隧道状态：True = tcp 代理已绑定远端端口；False = 还没确认。
+    '''
+    ''' 为什么要单独记：frpc 是后台进程，它启动失败（最常见是远端端口被占）时
+    ''' 进程照样活着、退出码是 0，界面上「已开启公网房间」照常亮着，而公网地址
+    ''' 其实根本没人接 —— 2026-11-16 早上 1.7.10 那轮就是这么卡了半小时。
+    ''' </summary>
+    Public RelayReady As Boolean = False
+    ''' <summary>隧道没起来时的原始原因（frpc 日志那一行）；空串表示没有故障。</summary>
+    Public RelayFault As String = ""
+
+    ''' <summary>新房间 / 关房间时清账，免得上一个房间的故障串到这一个上。</summary>
+    Public Sub ResetRelayState()
+        RelayReady = False
+        RelayFault = ""
+    End Sub
     Private PresenceCode As String = ""
     Private PresencePassword As String = ""
     ''' <summary>本次加入房间选择的入口方式：campus / p2p / public。</summary>
     Private PresenceVia As String = ""
     Private HostedPort As Integer = 0
+
+    ''' <summary>当前房间映射的本机端口；未创建房间时为 0。LAN 场景用它反查游戏进程。</summary>
+    Public ReadOnly Property HostedGamePort As Integer
+        Get
+            Return HostedPort
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' 当前是否持有房间（房主身份）。访客恒为 False。
+    ''' 用于把「房主」和「端口是否已填」解耦：先启动游戏、后建房也能认出游戏进程。
+    ''' </summary>
+    Public ReadOnly Property IsRoomHost As Boolean
+        Get
+            Return HostedRoomCode <> ""
+        End Get
+    End Property
     '当前房主房间号；关闭程序时据此释放房间与端口
     Private HostedRoomCode As String = ""
 
@@ -1026,6 +1062,77 @@ Public Module ModSocial
             FrpcConfigPaths.Add(ConfPath)
         End SyncLock
         Logger.Info($"已启动 frpc：房间 {Code}，节点 {If(NodeId = "", "-", NodeId)}")
+        '确认远端端口真的绑上了：frpc 失败时进程照样活着，只有日志里看得出来
+        Dim TcpProxy As JObject = Nothing
+        If Proxies IsNot Nothing Then
+            For Each Token As JToken In Proxies
+                Dim Proxy As JObject = TryCast(Token, JObject)
+                If Proxy IsNot Nothing AndAlso If(Proxy("type")?.ToString(), "tcp") = "tcp" Then
+                    TcpProxy = Proxy
+                    Exit For
+                End If
+            Next
+        End If
+        Dim ProxyName As String = If(TcpProxy IsNot Nothing,
+                                     If(TcpProxy("name")?.ToString(), ""),
+                                     If(Config("name")?.ToString(), "njitmcl-" & Code))
+        Dim RemotePort As Integer = 0
+        If TcpProxy IsNot Nothing AndAlso TcpProxy("remotePort") IsNot Nothing Then
+            Integer.TryParse(TcpProxy("remotePort").ToString(), RemotePort)
+        End If
+        WatchFrpcLog(Code, LogPath, ProxyName, RemotePort, NodeId)
+    End Sub
+
+    ''' <summary>
+    ''' 盯 frpc 自己的日志，确认 tcp 代理有没有把远端端口绑上。
+    '''
+    ''' frpc 失败时**不会退出**：进程活着、退出码 0，只在日志里写一行
+    ''' `[njitmcl-xxxx-tcp] start error: port already used`，然后每 30 秒重试。
+    ''' 于是界面上「已开启公网房间」亮着，公网地址却没人接，客户端一直停在
+    ''' 「Connecting to …」——2026-11-16 早上那轮就是这么耗掉半小时的。
+    '''
+    ''' 所以这里不一次定论：先记下故障串（房间卡片立刻能标红），继续盯到成功为止；
+    ''' 端口释放后 frpc 会自己重连上，成功就把故障串清掉。
+    ''' </summary>
+    Private Sub WatchFrpcLog(Code As String, LogPath As String, ProxyName As String,
+                             RemotePort As Integer, NodeName As String)
+        If String.IsNullOrWhiteSpace(ProxyName) Then Return
+        RunInNewThread(
+        Sub()
+            Dim Deadline As Date = Date.Now.AddMinutes(3)
+            Dim Tag As String = "[" & ProxyName & "]"
+            While Date.Now < Deadline
+                Threading.Thread.Sleep(2000)
+                Dim Text As String = ""
+                Try
+                    If IO.File.Exists(LogPath) Then Text = IO.File.ReadAllText(LogPath)
+                Catch
+                    Continue While
+                End Try
+                If Text.Length = 0 Then Continue While
+                Dim Tail As String = Text.Substring(Math.Max(0, Text.Length - 12000))
+                If Tail.Contains(Tag & " start proxy success") Then
+                    If RelayFault <> "" Then
+                        Logger.Info($"中继隧道恢复：房间 {Code}，节点 {NodeName}，远端端口 {RemotePort}")
+                    End If
+                    RelayReady = True
+                    RelayFault = ""
+                    Return
+                End If
+                Dim Hit As Integer = Tail.LastIndexOf(Tag & " start error")
+                If Hit >= 0 Then
+                    Dim Line As String = Tail.Substring(Hit)
+                    Dim Eol As Integer = Line.IndexOf(vbLf)
+                    If Eol > 0 Then Line = Line.Substring(0, Eol)
+                    Line = Line.Trim()
+                    If Line <> RelayFault Then
+                        RelayReady = False
+                        RelayFault = Line
+                        Logger.Warn($"中继隧道没起来：房间 {Code}，节点 {NodeName}，远端端口 {RemotePort} — {Line}")
+                    End If
+                End If
+            End While
+        End Sub, "FrpcWatch")
     End Sub
 
     ''' <summary>
@@ -1164,6 +1271,8 @@ Public Module ModSocial
     ''' 停止 frpc 并清理配置。
     ''' </summary>
     Public Sub StopFrpc()
+        '房间没了，上一个房间的隧道状态也一并作废
+        ResetRelayState()
         SyncLock FrpcLock
             For Each Item As Process In FrpcProcesses
                 Try

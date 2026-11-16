@@ -236,6 +236,7 @@
     <Compile Include="Modules\ModPlugin.vb" />
     <Compile Include="Modules\ModBootstrap.vb" />
     <Compile Include="Modules\ModSocial.vb" />
+    <Compile Include="Modules\ModOnlineMode.vb" />
     <Compile Include="Modules\ModSocialUi.vb" />
     <Compile Include="Modules\ModServerList.vb" />
     <Compile Include="Modules\ModPackRevision.vb" />

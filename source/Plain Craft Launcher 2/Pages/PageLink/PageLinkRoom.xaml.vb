@@ -45,6 +45,11 @@ Public Class PageLinkRoom
     Private JoinedPassword As String = ""
     '防止 20 秒定时刷新与手动刷新并发堆积请求
     Private Refreshing As Boolean = False
+    '游戏进程下拉框：房间与进服校验绑到哪一台
+    Private ComboProcess As MyComboBox
+    Private LabProcess As TextBlock
+    Private ProcessPids As New List(Of Integer)
+    Private FillingProcessList As Boolean
 
     Private Sub PageEnterHandler() Handles Me.PageEnter
         If Not Built Then
@@ -53,6 +58,8 @@ Public Class PageLinkRoom
             AddHandler RoomRefreshTimer.Tick, AddressOf RoomRefreshTimer_Tick
         End If
         RefreshAll()
+        '进服校验卡片挂在「我的房间」内容区，必须等 BuildTools 建好 PanRoomArea 之后再挂
+        ModOnlineMode.Mount(Me)
         '停留在房间页时定期刷新，房主才能看到新加入的成员
         RoomRefreshTimer.Stop()
         RoomRefreshTimer.Start()
@@ -69,10 +76,14 @@ Public Class PageLinkRoom
     Private Sub RoomRefreshTimer_Tick(sender As Object, e As EventArgs)
         If LabStatus Is Nothing Then Return
         RefreshAll()
+        '每拍顺带刷新进服校验卡片：开 LAN、建房都可能发生在停留期间，
+        '不重挂一次卡片就会一直停在进页那一刻的「未检测到」。
+        ModOnlineMode.Mount(Me)
     End Sub
 
     Public Sub Refresh() Implements IRefreshable.Refresh
         RefreshAll()
+        ModOnlineMode.Mount(Me)
     End Sub
 
 #Region "界面构建"
@@ -127,6 +138,29 @@ Public Class PageLinkRoom
         Panel.Children.Add(BuildPublicSwitch(FormPublicTrack, FormPublicKnob, FormPublicState))
         Panel.Children.Add(SocialLabel("打开为公网房间，关闭为校园内网房间；为节省社团资源，请在确有需要时再开启。"))
 
+        '游戏进程：同时开着两个客户端时，房间与进服校验该绑到哪一台
+        Dim ProcTitle As TextBlock = SocialRowTitle("游戏进程")
+        ProcTitle.Margin = New Thickness(0, 12, 0, 0)
+        Panel.Children.Add(ProcTitle)
+        Dim ProcRow As New StackPanel With {
+            .Orientation = Orientation.Horizontal, .Margin = New Thickness(0, 6, 0, 0)}
+        ComboProcess = New MyComboBox With {.Width = 320, .Height = 30}
+        AddHandler ComboProcess.SelectionChanged, Sub() OnProcessPicked()
+        Dim BtnProc As New MyButton With {
+            .Text = "刷新", .Height = 30, .MinWidth = 64, .Margin = New Thickness(8, 0, 0, 0)}
+        AddHandler BtnProc.Click, Sub() RefreshProcessList(True)
+        ProcRow.Children.Add(ComboProcess)
+        ProcRow.Children.Add(BtnProc)
+        Panel.Children.Add(ProcRow)
+        LabProcess = SocialRowState("自动：按最近启动的那个进程（只列启动器启动的游戏）。")
+        Panel.Children.Add(LabProcess)
+        RefreshProcessList(False)
+
+        '进服校验的落点：ModOnlineMode.Mount 会把拉杆塞进这块占位，
+        '位置就在「公网房间」下面；有房间时表单收起，拉杆会退回页面末尾继续可用。
+        Dim PanMode As New StackPanel With {.Name = "PanOnlineModeForm"}
+        Panel.Children.Add(PanMode)
+
         Dim JoinRow As New StackPanel With {.Orientation = Orientation.Horizontal, .Margin = New Thickness(0, 10, 0, 0)}
         TxtJoin = New MyTextBox With {.Width = 190, .Height = 30, .HintText = "输入 10 位房间号加入"}
         Dim BtnJoin As New MyButton With {
@@ -136,6 +170,143 @@ Public Class PageLinkRoom
         JoinRow.Children.Add(BtnJoin)
         Panel.Children.Add(JoinRow)
         Return Panel
+    End Function
+
+#Region "游戏进程选择"
+
+    ''' <summary>
+    ''' 重新枚举 java 进程填进下拉框。
+    ''' Manual = 用户点了「刷新」，这时无论列表有没有变化都重建一次。
+    '''
+    ''' WMI 一次几百毫秒，必须走后台线程；列表没变化时不重建，免得每 8 秒把选择清掉。
+    ''' </summary>
+    Private Sub RefreshProcessList(Manual As Boolean)
+        If ComboProcess Is Nothing Then Return
+        RunInNewThread(
+        Sub()
+            Dim Jvms As List(Of ModOnlineMode.ServerJvm) = Nothing
+            Try
+                '只列启动器自己启动的游戏进程：房间不挂别人的服务，中继也就不会被当免费 frp 用
+                Jvms = ModOnlineMode.ListGameJvms()
+            Catch ex As Exception
+                Logger.Warn(ex, "枚举游戏进程失败")
+            End Try
+            RunInUi(Sub() ApplyProcessList(Jvms, Manual))
+        End Sub, "RoomProcessList")
+    End Sub
+
+    Private Sub ApplyProcessList(Jvms As List(Of ModOnlineMode.ServerJvm), Manual As Boolean)
+        If ComboProcess Is Nothing Then Return
+        Dim Pids As New List(Of Integer)
+        If Jvms IsNot Nothing Then
+            For Each Jvm In Jvms
+                Pids.Add(Jvm.Pid)
+            Next
+        End If
+        If Not Manual AndAlso Pids.SequenceEqual(ProcessPids) Then Return
+        ProcessPids = Pids
+
+        FillingProcessList = True
+        Try
+            ComboProcess.Items.Clear()
+            ComboProcess.Items.Add(New MyComboBoxItem With {
+                .Content = "自动（最近启动的那个）", .Tag = 0})
+            If Jvms IsNot Nothing Then
+                For Each Jvm In Jvms
+                    ComboProcess.Items.Add(New MyComboBoxItem With {
+                        .Content = ModOnlineMode.DescribeJvm(Jvm), .Tag = Jvm.Pid})
+                Next
+            End If
+            If Jvms Is Nothing OrElse Jvms.Count = 0 Then
+                ComboProcess.Items.Add(New MyComboBoxItem With {
+                    .Content = "还没有启动器启动的游戏", .Tag = 0, .IsEnabled = False})
+            End If
+            '还原当前选择；指定的进程已经退出了就回到「自动」
+            Dim Want As Integer = ModOnlineMode.PinnedPid
+            Dim Index As Integer = 0
+            For i = 0 To ComboProcess.Items.Count - 1
+                Dim Item As MyComboBoxItem = TryCast(ComboProcess.Items(i), MyComboBoxItem)
+                If Item IsNot Nothing AndAlso CInt(Item.Tag) = Want Then
+                    Index = i
+                    Exit For
+                End If
+            Next
+            ComboProcess.SelectedIndex = Index
+        Finally
+            FillingProcessList = False
+        End Try
+        UpdateProcessLabel()
+        '点「刷新」= 重新找一遍进程并顺手对齐端口（开局域网晚于进页面时用得上）
+        If Manual Then FillPortFromProcess(ModOnlineMode.PinnedPid)
+    End Sub
+
+    Private Sub OnProcessPicked()
+        If FillingProcessList OrElse ComboProcess Is Nothing Then Return
+        Dim Item As MyComboBoxItem = TryCast(ComboProcess.SelectedItem, MyComboBoxItem)
+        Dim Pid As Integer = If(Item Is Nothing, 0, CInt(Item.Tag))
+        ModOnlineMode.Pin(Pid)
+        UpdateProcessLabel()
+        '选完进程顺手把它的局域网端口填上 —— 原版端口是随机的，不该由人去聊天栏抄
+        FillPortFromProcess(Pid)
+        '立刻按新进程重挂一次，进服校验不用等下一拍
+        ModOnlineMode.Mount(Me)
+    End Sub
+
+    ''' <summary>
+    ''' 把「本地端口」填成该进程正在监听的局域网端口。
+    '''
+    ''' 两个来源都会碰到：集成服务端（LAN 世界）和独立服务端。
+    ''' 进程还没开局域网时 LanPortOf 返回 0 —— 这时只提示，不动用户已经填好的值。
+    ''' netstat 要几百毫秒，放后台，回来再改界面。
+    ''' </summary>
+    Private Sub FillPortFromProcess(Pid As Integer)
+        If TxtLocalPort Is Nothing Then Return
+        RunInNewThread(
+        Sub()
+            Dim Target As Integer = Pid
+            If Target <= 0 Then
+                Dim Jvm As ModOnlineMode.ServerJvm = ModOnlineMode.FindServerJvm(McInstanceSelected)
+                If Jvm IsNot Nothing Then Target = Jvm.Pid
+            End If
+            If Target <= 0 Then Return
+            Dim Port As Integer = ModOnlineMode.LanPortOf(Target)
+            RunInUi(
+            Sub()
+                If Port <= 0 Then
+                    Hint($"PID {Target} 现在没有对局域网开放，端口还没法自动填。" & vbCrLf &
+                         "在游戏里按 ESC →「对局域网开放」之后再选一次这个进程即可。", HintType.Blue)
+                    Return
+                End If
+                TxtLocalPort.Text = Port.ToString()
+                Hint($"已按 PID {Target} 的局域网端口填好本地端口：{Port}", HintType.Green)
+            End Sub)
+        End Sub, "RoomAutoPort")
+    End Sub
+
+    Private Sub UpdateProcessLabel()
+        If LabProcess Is Nothing Then Return
+        If ModOnlineMode.PinnedPid > 0 Then
+            LabProcess.Text = "已指定 PID " & ModOnlineMode.PinnedPid & "：房间与进服校验都按这台走。"
+        ElseIf ProcessPids.Count = 0 Then
+            LabProcess.Text = "还没有启动器启动的游戏。外部启动的游戏不能开房间 —— 中继只转发启动器自己的进程。"
+        Else
+            LabProcess.Text = "自动：按最近启动的那个进程（只列启动器启动的游戏）。"
+        End If
+    End Sub
+
+#End Region
+
+    ''' <summary>
+    ''' 校内节点每天 22:55 关机、次日 09:00 开机。这段窗口内一律走公网，
+    ''' 否则房间会注册到一个连不上的入口，访客只会卡在「正在连接」。
+    ''' </summary>
+    Private Shared ReadOnly CampusDownStart As TimeSpan = New TimeSpan(22, 55, 0)
+    Private Shared ReadOnly CampusDownEnd As TimeSpan = New TimeSpan(9, 0, 0)
+
+    Private Shared Function CampusClosedNow() As Boolean
+        Dim Now2 As TimeSpan = Date.Now.TimeOfDay
+        '时间窗跨零点：22:55 — 次日 09:00
+        Return Now2 >= CampusDownStart OrElse Now2 < CampusDownEnd
     End Function
 
     ''' <summary>
@@ -191,32 +362,46 @@ Public Class PageLinkRoom
     End Function
 
     ''' <summary>
+    ''' 中继隧道没起来时的红字提示。
+    '''
+    ''' frpc 绑定远端端口失败时不会退出（进程活着、退出码 0），只在日志里留一行
+    ''' `start error: port already used`，界面上的「已开启公网房间」照常亮着 ——
+    ''' 于是所有人都在客户端那头看「Connecting to …」，看不出问题在房主这边。
+    ''' </summary>
+    Private Function BuildRelayFaultNote() As FrameworkElement
+        If ModSocial.RelayFault = "" Then Return Nothing
+        Dim Reason As String = ModSocial.RelayFault
+        '只留冒号后面那段原因，前面是 frpc 的日志前缀和代理名
+        Dim Mark As String = "start error:"
+        Dim At As Integer = Reason.IndexOf(Mark)
+        If At >= 0 Then Reason = Reason.Substring(At + Mark.Length).Trim()
+        If Reason.StartsWith("[") AndAlso Reason.Contains("]") Then
+            Reason = Reason.Substring(Reason.IndexOf("]") + 1).Trim()
+        End If
+        Dim Panel As New StackPanel With {.Margin = New Thickness(0, 6, 0, 0)}
+        Panel.Children.Add(New TextBlock With {
+            .Text = "公网入口没起来：" & If(Reason = "", "frpc 还没绑上远端端口", Reason),
+            .FontSize = 11, .Foreground = SocialBrush(SocialRed), .TextWrapping = TextWrapping.Wrap})
+        Panel.Children.Add(New TextBlock With {
+            .Text = "最常见的原因是还有一个旧的 frpc 在跑（任务管理器搜 frpc.exe，多半是以前测试包留下的）。" &
+                    vbCrLf & "把它结束后不用重建房间，这条提示会在半分钟内自己消失。",
+            .FontSize = 11, .Opacity = 0.55, .Margin = New Thickness(0, 2, 0, 0),
+            .TextWrapping = TextWrapping.Wrap})
+        Return Panel
+    End Function
+
+    ''' <summary>
     ''' 构建一套「开启公网房间」拉杆，表单与房间卡片共用同一状态。
+    ''' 外观直接取自 SocialSwitch —— 与「进服校验」那根拉杆是同一份实现。
     ''' </summary>
     Private Function BuildPublicSwitch(ByRef Track As Border, ByRef Knob As Border, ByRef State As TextBlock) As FrameworkElement
-        Dim SwitchRow As New Grid With {.Margin = New Thickness(0, 10, 0, 0)}
-        SwitchRow.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
-        SwitchRow.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
-        Dim SwitchText As New StackPanel With {.VerticalAlignment = VerticalAlignment.Center}
-        SwitchText.Children.Add(New TextBlock With {.Text = "开启公网房间", .FontSize = 13})
-        State = New TextBlock With {
-            .Text = "已关闭：仅校园内网入口", .FontSize = 11, .Opacity = 0.6,
-            .Margin = New Thickness(0, 2, 0, 0)}
-        SwitchText.Children.Add(State)
-        SwitchRow.Children.Add(SwitchText)
-        Track = New Border With {
-            .Width = 44, .Height = 22, .CornerRadius = New CornerRadius(11),
-            .VerticalAlignment = VerticalAlignment.Center, .Cursor = Cursors.Hand}
-        Knob = New Border With {
-            .Width = 16, .Height = 16, .CornerRadius = New CornerRadius(8),
-            .Background = New System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White),
-            .HorizontalAlignment = HorizontalAlignment.Left, .Margin = New Thickness(3, 0, 0, 0)}
-        Track.Child = Knob
+        Dim Switch As New SocialSwitch("开启公网房间", "已关闭：仅校园内网入口")
+        Track = Switch.Track
+        Knob = Switch.Knob
+        State = Switch.StateText
         AddHandler Track.MouseLeftButtonUp, Sub() TogglePublicRoom()
-        Grid.SetColumn(Track, 1)
-        SwitchRow.Children.Add(Track)
         UpdatePublicButton()
-        Return SwitchRow
+        Return Switch
     End Function
 
     Private Sub UpdatePublicButton()
@@ -235,7 +420,11 @@ Public Class PageLinkRoom
             Knob.Margin = If(Enable, New Thickness(0, 0, 3, 0), New Thickness(3, 0, 0, 0))
         End If
         If State IsNot Nothing Then
-            State.Text = If(Enable, "已开启：同时注册公网入口", "已关闭：仅校园内网入口")
+            If CampusClosedNow() Then
+                State.Text = "校内节点已关机，建房强制走公网"
+            Else
+                State.Text = If(Enable, "已开启：同时注册公网入口", "已关闭：仅校园内网入口")
+            End If
         End If
     End Sub
 
@@ -253,6 +442,11 @@ Public Class PageLinkRoom
             Hint("中控没有配置公网节点", HintType.Red)
             Return
         End If
+        '校内节点关机期间不许关公网：关掉之后房间就没有任何可用入口
+        If PublicRoomEnabled AndAlso CampusClosedNow() Then
+            Hint("校内节点 22:55 起关机，现在关闭公网会让房间没有可用入口，请明早 9 点后再关", HintType.Red)
+            Return
+        End If
         If FormPublicTrack IsNot Nothing Then FormPublicTrack.IsEnabled = False
         If CardPublicTrack IsNot Nothing Then CardPublicTrack.IsEnabled = False
         Dim Code As String = MyRoomCode
@@ -264,6 +458,16 @@ Public Class PageLinkRoom
                 If Enabling Then
                     ModSocial.EnablePublic(Code, NodeId)
                 Else
+                    '中控要求至少保留一个入口；房间只注册了公网节点时，
+                    '先补一个校内入口再删公网，否则会拿到 400。
+                    Dim Campus As JObject = FindNode(True)
+                    If Campus IsNot Nothing AndAlso NodeReachable(Campus) Then
+                        Try
+                            ModSocial.EnablePublic(Code, Campus("id").ToString())
+                        Catch ex As Exception
+                            Logger.Warn(ex, "补校内入口失败，继续尝试关闭公网节点")
+                        End Try
+                    End If
                     ModSocial.DisablePublic(Code, NodeId)
                 End If
                 RunInUi(
@@ -379,6 +583,10 @@ Public Class PageLinkRoom
 
         PanCreateForm.Visibility = If(Mine Is Nothing, Visibility.Visible, Visibility.Collapsed)
         If Mine IsNot Nothing Then PanMyRoomCard.Children.Add(BuildMyRoomCard(Mine))
+        '表单刚显示或收起，进服校验拉杆要跟着换位置（表单里 → 页面末尾，或反过来）
+        ModOnlineMode.Mount(Me)
+        '进程列表跟着刷新（列表没变化时不会重建，选择不会丢）
+        RefreshProcessList(False)
 
         '房间分组：房主是好友的进「好友房间」，其余进「其他房间」
         Dim FriendRooms As New List(Of JObject)
@@ -402,24 +610,63 @@ Public Class PageLinkRoom
         For Each Room As JObject In OtherRooms
             PanOtherRoomList.Children.Add(BuildOtherRoomRow(Room))
         Next
-        If Others.Count = 0 Then Return
+        '延迟测量：自己房间与其他房间的**每个入口**各量一次。
+        '旧实现只量 RoomAddress（公网优先），于是校内那个入口从来没有延迟数据，
+        '新加的「校内」行就永远是空的。同一地址只量一次，量过的进缓存不再重复。
         Dim PendingAddresses As New List(Of String)
-        Dim PendingRooms As New List(Of JObject)
-        For Each Room In Others
-            If Room("relay")?.ToString() = "p2p" Then Continue For
-            Dim HostValue As String = Room("host")?.ToString()
-            Dim Address As String = RoomAddress(Room)
-            If String.IsNullOrWhiteSpace(HostValue) Then Continue For
-            If LatencyCache.ContainsKey(Address) OrElse PendingAddresses.Contains(Address) Then Continue For
-            PendingAddresses.Add(Address)
-            PendingRooms.Add(Room)
+        Dim PendingHosts As New List(Of String)
+        Dim PendingPorts As New List(Of Integer)
+        Dim Scopes As New List(Of JObject)
+        If Mine IsNot Nothing Then Scopes.Add(Mine)
+        For Each Room As JObject In Others
+            Scopes.Add(Room)
         Next
-        If PendingRooms.Count = 0 Then Return
+        For Each Room As JObject In Scopes
+            If Room("relay")?.ToString() = "p2p" Then Continue For
+            Dim Queued As Boolean = False
+            Dim Endpoints As JArray = TryCast(Room("endpoints"), JArray)
+            If Endpoints IsNot Nothing Then
+                For Each Token As JToken In Endpoints
+                    Dim Entry As JObject = TryCast(Token, JObject)
+                    If Entry Is Nothing Then Continue For
+                    Dim HostValue As String = If(Entry("host")?.ToString(), "")
+                    Dim PortValue As Integer = If(Entry("port")?.ToObject(Of Integer)(), 0)
+                    If HostValue = "" OrElse PortValue <= 0 Then Continue For
+                    Dim Addr As String = HostValue & ":" & PortValue
+                    If LatencyCache.ContainsKey(Addr) OrElse PendingAddresses.Contains(Addr) Then
+                        Queued = True
+                        Continue For
+                    End If
+                    PendingAddresses.Add(Addr)
+                    PendingHosts.Add(HostValue)
+                    PendingPorts.Add(PortValue)
+                    Queued = True
+                Next
+            End If
+            '旧版中控或非成员只给 host/port，没有 endpoints
+            If Not Queued Then
+                Dim HostValue As String = If(Room("host")?.ToString(), "")
+                Dim PortValue As Integer = If(Room("port")?.ToObject(Of Integer)(), 0)
+                If HostValue = "" OrElse PortValue <= 0 Then Continue For
+                Dim Addr As String = HostValue & ":" & PortValue
+                If LatencyCache.ContainsKey(Addr) OrElse PendingAddresses.Contains(Addr) Then Continue For
+                PendingAddresses.Add(Addr)
+                PendingHosts.Add(HostValue)
+                PendingPorts.Add(PortValue)
+            End If
+        Next
+        If PendingHosts.Count = 0 Then Return
         RunInNewThread(
         Sub()
-            For Each Room As JObject In PendingRooms
-                LatencyCache(RoomAddress(Room)) = ModSocial.MeasureRelay(
-                    Room("host").ToString(), If(Room("port")?.ToObject(Of Integer)(), 25565))
+            For Index As Integer = 0 To PendingHosts.Count - 1
+                Try
+                    LatencyCache(PendingAddresses(Index)) = ModSocial.MeasureRelay(
+                        PendingHosts(Index), PendingPorts(Index))
+                Catch ex As Exception
+                    '量失败也要落缓存，否则每次刷新都会拿同一批地址重测，界面一直转
+                    LatencyCache(PendingAddresses(Index)) = -1
+                    Logger.Warn(ex, "测量入口延迟失败：" & PendingAddresses(Index))
+                End Try
             Next
             RunInUi(Sub() RenderRooms())
         End Sub, "SocialLatency")
@@ -446,10 +693,18 @@ Public Class PageLinkRoom
         Dim NodeText As String = If(FirstEntry(Item)?("name")?.ToString(), If(Item("nodeName")?.ToString(), ""))
         Info.Children.Add(New TextBlock With {
             .Text = If(Item("name")?.ToString(), "未命名房间"), .FontSize = 15, .FontWeight = FontWeights.SemiBold})
+        Dim Headline As String = $"房间号 {Item("code")}"
+        If NodeText <> "" Then Headline &= $" ｜ 节点 {NodeText}"
         Info.Children.Add(New TextBlock With {
-            .Text = $"房间号 {Item("code")} ｜ {NodeText} ｜ {Address} ｜ {If(IsP2p, "本机直连", LatencyText(Address))}",
+            .Text = Headline,
             .FontSize = 11, .Opacity = 0.6, .Margin = New Thickness(0, 3, 0, 0),
             .TextTrimming = TextTrimming.CharacterEllipsis})
+        '入口逐个列出：同时开着公网与校内时两个都在，各自可复制
+        If IsP2p Then
+            Info.Children.Add(ModSocialUi.SocialAddressRow("本机", Address, SocialBlue, "P2P 直连"))
+        Else
+            Info.Children.Add(BuildAddressPanel(Item))
+        End If
         '房主自己设的密码只在本机保存，方便随时复制发给好友
         If HostPassword <> "" Then
             Dim PwdLine As New StackPanel With {
@@ -476,24 +731,15 @@ Public Class PageLinkRoom
 
         Dim Actions As New StackPanel With {
             .Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
-        Dim BtnCopy As New MyButton With {.Text = "复制地址", .Height = 26, .MinWidth = 84}
-        AddHandler BtnCopy.Click,
-            Sub()
-                Try
-                    Clipboard.SetText(Address)
-                    Hint("服务器地址已复制：" & Address, HintType.Green)
-                Catch ex As Exception
-                    Hint("复制失败：剪贴板被其他程序占用", HintType.Red)
-                End Try
-            End Sub
+        '不再放「复制地址」：入口已经按 校内 / 公网 逐行列出，每行自带复制按钮，
+        '再放一个大按钮反而是第二个入口、还得解释它复制的是哪一个
         Dim BtnLaunch As New MyButton With {
-            .Text = "启动并进入", .Height = 26, .MinWidth = 96, .Margin = New Thickness(8, 0, 0, 0),
+            .Text = "启动并进入", .Height = 26, .MinWidth = 96,
             .ColorType = MyButton.ColorState.Highlight}
         AddHandler BtnLaunch.Click, Sub() LaunchRoom(Address)
         Dim BtnClose As New MyButton With {
             .Text = "关闭房间", .Height = 26, .MinWidth = 84, .Margin = New Thickness(8, 0, 0, 0)}
         AddHandler BtnClose.Click, Sub() CloseRoomWithConfirm(Item, BtnClose)
-        Actions.Children.Add(BtnCopy)
         Actions.Children.Add(BtnLaunch)
         Actions.Children.Add(BtnClose)
         Grid.SetColumn(Actions, 2)
@@ -502,6 +748,12 @@ Public Class PageLinkRoom
 
         '房间已建好后也能随时开关公网入口
         Layout.Children.Add(BuildPublicSwitch(CardPublicTrack, CardPublicKnob, CardPublicState))
+        'frpc 起不来时界面必须说话：它不退出、只写日志，「已开启公网房间」会骗人
+        Dim RelayNote As FrameworkElement = BuildRelayFaultNote()
+        If RelayNote IsNot Nothing Then Layout.Children.Add(RelayNote)
+        '进服校验的落点：房间建好后表单收起，拉杆跟着到卡片里这根公网拉杆下面
+        Dim PanMode As New StackPanel With {.Name = "PanOnlineModeCard"}
+        Layout.Children.Add(PanMode)
         Layout.Children.Add(BuildMemberSection(Item))
         Card.Child = Layout
         Return Card
@@ -593,6 +845,10 @@ Public Class PageLinkRoom
         Dim IsP2p As Boolean = Item("relay")?.ToString() = "p2p"
         Dim Address As String = If(IsP2p, "P2P 打洞", RoomAddress(Item))
         Dim Code As String = Item("code").ToString()
+        '已加入的房间服务端可能不再下发入口，用本地记录的中转地址补上
+        If Address = "" AndAlso JoinedRoomCode <> "" AndAlso JoinedRoomCode = Code Then
+            Address = ModSocial.JoinerServer
+        End If
         Dim Members As JArray = TryCast(Item("members"), JArray)
         Dim Count As Integer = If(Members Is Nothing, 0, Members.Count)
         Dim Expanded As Boolean = (ExpandedRoom = Code)
@@ -618,8 +874,12 @@ Public Class PageLinkRoom
         Dim Joined As Boolean = JoinedRoomCode <> "" AndAlso JoinedRoomCode = Code
         Dim HasPwd As Boolean = Item("hasPassword")?.ToObject(Of Boolean)() = True
         Dim Tail As String = If(HasPwd, " ｜ 需要密码", "") & If(Joined, " ｜ 已加入", "")
+        '地址只给房主与房间内成员；拿不到时不要显示「测量中」这种假状态
+        Dim LinkText As String = If(IsP2p, "P2P 打洞",
+                                    If(String.IsNullOrWhiteSpace(Address), "加入后可见延迟",
+                                       LatencyText(Address)))
         Info.Children.Add(New TextBlock With {
-            .Text = $"房主 {Item("ownerName")} ｜ {Count} 人在线 ｜ {If(IsP2p, "P2P 打洞", LatencyText(Address))}" & Tail,
+            .Text = $"房主 {Item("ownerName")} ｜ {Count} 人在线 ｜ {LinkText}" & Tail,
             .FontSize = 11, .Opacity = 0.6, .Margin = New Thickness(0, 3, 0, 0),
             .TextTrimming = TextTrimming.CharacterEllipsis})
         Grid.SetColumn(Info, 1)
@@ -639,7 +899,15 @@ Public Class PageLinkRoom
 
         If Expanded Then
             Layout.Children.Add(BuildMemberSection(Item))
-            Layout.Children.Add(SocialLabel("房间号：" & Code & " ｜ 地址：" & Address))
+            '非成员拿不到入口地址，明确写成「加入后可见」而不是留空。
+            '成员（已加入）这边按入口逐行列出并带复制按钮 —— 以前只有一行纯文本，
+            '想抄个地址得自己选中，手机上看还要长按。
+            Layout.Children.Add(SocialLabel("房间号：" & Code))
+            If String.IsNullOrWhiteSpace(Address) Then
+                Layout.Children.Add(SocialLabel("地址：加入后可见"))
+            Else
+                Layout.Children.Add(BuildAddressPanel(Item))
+            End If
             If Joined Then
                 Dim BtnLeave As New MyButton With {
                     .Text = "退出房间", .Height = 26, .MinWidth = 88, .Margin = New Thickness(0, 8, 0, 0)}
@@ -654,6 +922,9 @@ Public Class PageLinkRoom
                 Dim Node As DependencyObject = TryCast(e.OriginalSource, DependencyObject)
                 While Node IsNot Nothing
                     If TypeOf Node Is MyButton Then Return
+                    '地址行自带复制行为，点它不该顺手把卡片收起
+                    Dim Element As FrameworkElement = TryCast(Node, FrameworkElement)
+                    If Element IsNot Nothing AndAlso TryCast(Element.Tag, String) = ModSocialUi.CopyRegionTag Then Return
                     Node = VisualTreeHelper.GetParent(Node)
                 End While
                 ExpandedRoom = If(ExpandedRoom = Code, "", Code)
@@ -678,7 +949,89 @@ Public Class PageLinkRoom
             Next
             If Fallback <> "" Then Return Fallback
         End If
-        Return If(Room("host")?.ToString(), "") & ":" & If(Room("port")?.ToString(), "")
+        '服务端对非成员不下发 host/port，这时不要拼出「:0」
+        Dim Host As String = If(Room("host")?.ToString(), "")
+        Dim PortText As String = If(Room("port")?.ToString(), "0")
+        If Host = "" OrElse PortText = "0" Then Return ""
+        Return Host & ":" & PortText
+    End Function
+
+    ''' <summary>
+    ''' 从 endpoints 里取出第一个校内入口与第一个公网入口。
+    ''' 取不到就都是空串，由调用方决定退路。
+    ''' </summary>
+    Private Sub SplitEndpoints(Room As JObject, ByRef Campus As String, ByRef PublicAddr As String)
+        Campus = ""
+        PublicAddr = ""
+        If Room Is Nothing Then Return
+        Dim Endpoints As JArray = TryCast(Room("endpoints"), JArray)
+        If Endpoints Is Nothing Then Return
+        For Each Token As JToken In Endpoints
+            Dim Entry As JObject = TryCast(Token, JObject)
+            If Entry Is Nothing Then Continue For
+            Dim HostValue As String = If(Entry("host")?.ToString(), "")
+            Dim PortValue As String = If(Entry("port")?.ToString(), "")
+            If HostValue = "" OrElse PortValue = "" Then Continue For
+            Dim Addr As String = HostValue & ":" & PortValue
+            If Entry("campusOnly")?.ToObject(Of Boolean)() = True Then
+                If Campus = "" Then Campus = Addr
+            Else
+                If PublicAddr = "" Then PublicAddr = Addr
+            End If
+        Next
+    End Sub
+
+    ''' <summary>
+    ''' 一句话概括房间的所有入口，用于建房成功后的状态行与提示：
+    ''' 「校内 10.1.2.3:25565 ｜ 公网 hp.…:30001」。
+    ''' </summary>
+    Private Function EndpointSummary(Room As JObject) As String
+        Dim Campus As String = ""
+        Dim PublicAddr As String = ""
+        SplitEndpoints(Room, Campus, PublicAddr)
+        Dim Parts As New List(Of String)
+        If Campus <> "" Then Parts.Add("校内 " & Campus)
+        If PublicAddr <> "" Then Parts.Add("公网 " & PublicAddr)
+        If Parts.Count = 0 Then Return RoomAddress(Room)
+        Return String.Join(" ｜ ", Parts)
+    End Function
+
+    ''' <summary>
+    ''' 把房间的入口拆成「校内 / 公网」逐行列出，各自可复制。
+    '''
+    ''' 一个房间开启公网后会同时注册两个入口，而卡片上原来只拼一个字符串，
+    ''' 公网优先的规则把校内那个吃掉了 —— 在校内的人反而看不到能直连的地址。
+    ''' </summary>
+    Private Function BuildAddressPanel(Room As JObject, Optional ShowLatency As Boolean = True) As FrameworkElement
+        Dim Panel As New StackPanel
+        Dim Campus As String = ""
+        Dim PublicAddr As String = ""
+        SplitEndpoints(Room, Campus, PublicAddr)
+        If Campus = "" AndAlso PublicAddr = "" Then
+            '服务端只给了单个 host/port（非成员、或旧版中控）
+            Dim Addr As String = RoomAddress(Room)
+            If Addr <> "" Then
+                Panel.Children.Add(ModSocialUi.SocialAddressRow("地址", Addr, SocialGray,
+                    If(ShowLatency, LatencyNote(Addr), "")))
+            End If
+            Return Panel
+        End If
+        If Campus <> "" Then
+            Panel.Children.Add(ModSocialUi.SocialAddressRow("校内", Campus, SocialGreen,
+                If(ShowLatency, LatencyNote(Campus), "")))
+        End If
+        If PublicAddr <> "" Then
+            Panel.Children.Add(ModSocialUi.SocialAddressRow("公网", PublicAddr, SocialBlue,
+                If(ShowLatency, LatencyNote(PublicAddr), "")))
+        End If
+        Return Panel
+    End Function
+
+    ''' <summary>地址备注：延迟只在量过之后显示，量不到就不写「测量中」这种假状态。</summary>
+    Private Function LatencyNote(Address As String) As String
+        If Address = "" OrElse Not LatencyCache.ContainsKey(Address) Then Return ""
+        Dim Value As Integer = LatencyCache(Address)
+        Return If(Value < 0, "不可达", Value & " ms")
     End Function
 
     Private Function LatencyText(Address As String) As String
@@ -954,12 +1307,18 @@ Public Class PageLinkRoom
             Hint("房间密码需为 4—32 个字符", HintType.Red)
             Return
         End If
-        '隧道只会把本机端口转发出去；本机没服务时访客一定连不上，先提醒
-        If Not TcpReachable("127.0.0.1", LocalPort) Then
-            If MyMsgBox($"本机端口 {LocalPort} 当前没有服务在监听。" & vbCrLf & vbCrLf &
-                        "请先在游戏里按 ESC →「对局域网开放」，再把聊天栏显示的端口填到这里的端口框（原版默认端口是随机的，不一定是 25565）。" & vbCrLf & vbCrLf &
-                        "如果游戏还没开局域网，访客将无法连接。仍要现在创建房间吗？",
-                        "本地端口未开放", "仍要创建", "取消") <> 1 Then Return
+        '房间会把本机端口经社团中继转发出去，所以只允许挂「启动器自己启动的游戏」的端口：
+        '谁都能挂的话，这个中继就成了免费 frp，可以拿来转发任意本机服务。
+        Dim PortPid As Integer = ModOnlineMode.FindPidByPort(LocalPort)
+        If PortPid <= 0 Then
+            Hint($"端口 {LocalPort} 上没有任何服务在监听。" & vbCrLf &
+                 "请先在游戏里按 ESC →「对局域网开放」，再把聊天栏显示的端口填到这里。", HintType.Red)
+            Return
+        End If
+        If Not ModOnlineMode.IsLaunchedByUs(PortPid) Then
+            Hint($"端口 {LocalPort} 属于 PID {PortPid}，不是启动器启动的游戏，不能开房间。" & vbCrLf &
+                 "这条限制是为了不让社团中继被拿去转发别的服务。", HintType.Red)
+            Return
         End If
         LabStatus.Text = "正在创建房间……"
         BtnCreate.IsEnabled = False
@@ -971,8 +1330,9 @@ Public Class PageLinkRoom
                 Dim CampusNode As JObject = FindNode(True)
                 Dim PublicNode As JObject = FindNode(False)
                 Dim Nodes As New List(Of String)
-                '校内可达就只开校内；不可达则自动降级到公网
-                Dim CampusOk As Boolean = CampusNode IsNot Nothing AndAlso NodeReachable(CampusNode)
+                '校内可达就只开校内；不可达或已过关机时间则自动降级到公网
+                Dim CampusOk As Boolean = CampusNode IsNot Nothing AndAlso
+                    Not CampusClosedNow() AndAlso NodeReachable(CampusNode)
                 If CampusOk Then Nodes.Add(CampusNode("id").ToString())
                 If WantPublic OrElse Not CampusOk Then
                     If PublicNode IsNot Nothing Then Nodes.Add(PublicNode("id").ToString())
@@ -987,6 +1347,8 @@ Public Class PageLinkRoom
                     HostPassword = Password
                     PublicRoomEnabled = HasPublicEntry(Room)
                     Dim Address As String = FirstAddress(Room)
+                    Dim Summary As String = EndpointSummary(Room)
+                    If Summary = "" Then Summary = Address
                     UpdatePublicButton()
                     '后续这些属于附加动作，失败不能把"建房成功"误报成失败
                     Try
@@ -999,7 +1361,9 @@ Public Class PageLinkRoom
                     Catch ex As Exception
                         Logger.Warn(ex, "复制房间地址失败")
                     End Try
-                    LabStatus.Text = $"房间已创建：{Address}，地址已复制到剪贴板"
+                    '剪贴板里是首选入口（能直接粘进「添加服务器」），两个入口都在状态行里写全，
+                    '卡片里那两行各自还能单独复制
+                    LabStatus.Text = $"房间已创建：{Summary}，首选地址已复制到剪贴板"
                     Hint("房间号 " & MyRoomCode & "，地址已复制", HintType.Green)
                     RefreshAll()
                 End Sub)
