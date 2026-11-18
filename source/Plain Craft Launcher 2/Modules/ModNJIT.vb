@@ -30,17 +30,17 @@ Public Module ModNJIT
         Get
             Dim SiteOverride As String = Environment.GetEnvironmentVariable("NJITMCL_SITE")
             If Not String.IsNullOrWhiteSpace(SiteOverride) Then Return SiteOverride.TrimEnd("/"c)
-            Return "https://njitmc.club"
+            Return "https://www.njit-fkcy.top"
         End Get
     End Property
     ''' <summary>
     ''' 注册与入服教程。
     ''' </summary>
-    Public Const ClubGuideUrl As String = "https://njitmc.club/#guidedetails?id=1"
+    Public Const ClubGuideUrl As String = "https://www.njit-fkcy.top/#guidedetails?id=1"
     ''' <summary>
     ''' 社团反馈页面。
     ''' </summary>
-    Public Const ClubFeedbackUrl As String = "https://njitmc.club/#feedback"
+    Public Const ClubFeedbackUrl As String = "https://www.njit-fkcy.top/#feedback"
     ''' <summary>
     ''' MUA 皮肤站。
     ''' </summary>
@@ -140,6 +140,20 @@ Public Module ModNJIT
     Public Function RequestSiteLogin(MojangAccess As String, MojangUuid As String, MojangName As String,
                                      Optional MuaAccess As String = "", Optional MuaUuid As String = "",
                                      Optional MuaName As String = "", Optional MuaUserName As String = "") As String
+        Dim Json As JObject = RequestSiteLoginFull(MojangAccess, MojangUuid, MojangName,
+                                                   MuaAccess, MuaUuid, MuaName, MuaUserName)
+        Dim Code As String = Json("code")?.ToString()
+        If String.IsNullOrWhiteSpace(Code) Then Throw New Exception("网站没有返回登录码")
+        Return Code
+    End Function
+
+    ''' <summary>
+    ''' 提交登录凭证并返回完整结果：code 供浏览器换取会话，token 为联机设备令牌。
+    ''' 服务端在绑定启动器时直接签发设备令牌，启动器无需再单独做一次授权。
+    ''' </summary>
+    Public Function RequestSiteLoginFull(MojangAccess As String, MojangUuid As String, MojangName As String,
+                                         Optional MuaAccess As String = "", Optional MuaUuid As String = "",
+                                         Optional MuaName As String = "", Optional MuaUserName As String = "") As JObject
         Dim Request As New JObject()
         If Not String.IsNullOrWhiteSpace(MojangAccess) Then
             Request("mojang") = New JObject(
@@ -163,9 +177,7 @@ Public Module ModNJIT
         'MUA 的 refresh 会轮换 accessToken，网站把新值带回来，写回缓存避免下次失效
         Dim NewMua As String = Json("muaAccessToken")?.ToString()
         If Not String.IsNullOrWhiteSpace(NewMua) Then Settings.Set("CacheAuthAccess", NewMua)
-        Dim Code As String = Json("code")?.ToString()
-        If String.IsNullOrWhiteSpace(Code) Then Throw New Exception("网站没有返回登录码")
-        Return Code
+        Return Json
     End Function
 
     ''' <summary>

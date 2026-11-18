@@ -6,7 +6,7 @@ Public Module ModUpdate
     ''' <summary>
     ''' 更新清单地址（社团官网服务器）。
     ''' </summary>
-    Public Const UpdateManifestUrl As String = "https://njitmc.club/update/njitmcl.json"
+    Public Const UpdateManifestUrl As String = "https://www.njit-fkcy.top/update/njitmcl.json"
 
     ''' <summary>
     ''' 手动检查更新（关于页、设置页、侧边栏按钮）。

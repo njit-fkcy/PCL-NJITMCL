@@ -21,12 +21,12 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 | 项 | 值 |
 |---|---|
 | 组织 | [njit-fkcy](https://github.com/njit-fkcy) |
-| 最新版本 | **v2.2.0** |
-| Release 数量 | 45（v1.0.3 ～ v2.2.0） |
-| 每个 Release 资产 | **2.1.x / 2.2.x：2 个**（单 exe + 完整 zip）；2.0.x：8 个；1.x：10 个 |
+| 最新版本 | **v2.3.0** |
+| Release 数量 | 46（v1.0.3 ～ v2.3.0） |
+| 每个 Release 资产 | **2.1.x 起：2 个**（单 exe + 完整 zip）；2.0.x：8 个；1.x：10 个 |
 | 源码 | 本仓库 [`source/`](source/)（每版一个 tag `v<版本>-source`；内网镜像 `_launcher/_source/v<版本>/`） |
-| 更新清单 | https://njitmc.club/update/njitmcl.json |
-| 官网 | https://njitmc.club |
+| 更新清单 | https://www.njit-fkcy.top/update/njitmcl.json |
+| 官网 | https://www.njit-fkcy.top |
 | 技术支持 / 问题反馈 | 官网「反馈」入口，或启动器内「意见反馈」 |
 
 > **2.1.0 起安装形态改变**：发布包只有一个 `PCL-NJITMCL.exe`，依赖库内嵌其中，
@@ -80,7 +80,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 - **目录名带 `v` 前缀**（`v1.5.6`），与 Release tag 完全一致；**文件名不带**（`PCL-NJITMCL-1.5.6.zip`、`PCL-NJITMCL-Source-1.5.6.tar.gz`）。
 - 目录列表被禁用：直接访问目录 URL 返回 `403`，只能按完整文件名取；文件支持 `Range`，断点续传返回 `206`。
 - `_source/` 从 **v1.5.6** 起才有；v1.0.3 ～ v1.5.5 只有二进制，无源码镜像。
-- 更新清单**不在内网**，由官网 `https://njitmc.club/update/njitmcl.json` 托管（1.7.0 起 9 个文件各 4 源 + `sha256`）。
+- 更新清单**不在内网**，由官网 `https://www.njit-fkcy.top/update/njitmcl.json` 托管（1.7.0 起 9 个文件各 4 源 + `sha256`）。
 - 新增版本时 `_launcher/v<版本>/` 与 `_launcher/_source/v<版本>/` 必须**同时建立**，只建二进制目录视为未发布。
 - 内网只做镜像，**不存清单、不存官网页面**；清单与下载页由官网服务器负责。
 
@@ -102,16 +102,17 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 ## 更新机制
 
-- 启动器启动时读取 `https://njitmc.club/update/njitmcl.json`，比较其中的 `versionCode` 与本机内置值。
+- 启动器启动时读取 `https://www.njit-fkcy.top/update/njitmcl.json`，比较其中的 `versionCode` 与本机内置值。
 - **只比 `versionCode`**：`NewCode <= VersionCode` 即判定为最新。因此同一版本号重新构建不会被已更新用户收到，需要替换构建时必须递增版本号。
 - 清单里每个文件带多个下载源（4 个）与 `sha256`，客户端按顺序回退，校验通过才落盘。2.1.x 清单只有一个文件（`PCL-NJITMCL.exe`），另带可选的 `package`（完整 zip）。
 - 1.6.1 起下载层带超时（连接 8s / 读写 20s）与单源重试：某个源返回 5xx 或超时会换下一个源，4xx 直接放弃该源，不再因为一个源失败而整次更新失败。
-- 清单与官网下载页由官网服务器（`njitmc.club`）托管；GitHub 只负责存放二进制。
+- 清单与官网下载页由官网服务器（`www.njit-fkcy.top`）托管；GitHub 只负责存放二进制。
 
 ## 版本一览
 
 | 版本 | Tag | 主程序 | 资产 | 发布 |
 |---|---|---|---|---|
+| 2.3.0 | `v2.3.0` | 7.6 MB | 2 | 2026-11-18 |
 | 2.2.0 | `v2.2.0` | 7.6 MB | 2 | 2026-11-16 |
 | 2.1.4 | `v2.1.4` | 7.5 MB | 2 | 2026-11-14 |
 | 2.1.3 | `v2.1.3` | 7.5 MB | 2 | 2026-11-14 |

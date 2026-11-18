@@ -139,8 +139,18 @@ Public Module ModSiteAuth
                 If String.IsNullOrWhiteSpace(MojangAccess) AndAlso String.IsNullOrWhiteSpace(MuaAccess) Then
                     Throw New Exception("请先在启动器登录正版或 MUA 账号")
                 End If
-                Dim Code As String = ModNJIT.RequestSiteLogin(MojangAccess, MojangUuid, MojangName,
-                                                              MuaAccess, MuaUuid, MuaName, MuaUserName)
+                Dim Result As JObject = ModNJIT.RequestSiteLoginFull(MojangAccess, MojangUuid, MojangName,
+                                                                     MuaAccess, MuaUuid, MuaName, MuaUserName)
+                Dim Code As String = Result("code")?.ToString()
+                If String.IsNullOrWhiteSpace(Code) Then Throw New Exception("网站没有返回登录码")
+                '服务端随绑定直接签发联机设备令牌，这里保存后联机模块无需再单独授权
+                If Not String.IsNullOrWhiteSpace(Result("token")?.ToString()) Then
+                    Try
+                        ModSocial.ApplyDeviceToken(Result)
+                    Catch ex As Exception
+                        Logger.Warn(ex, "保存网站返回的设备令牌失败")
+                    End Try
+                End If
                 OpenWebsite(ModNJIT.ClubHomepage & "/#mc-login?code=" & Uri.EscapeDataString(Code))
                 HideSiteLoginBar()
                 RunInUi(Sub() Hint("账号验证成功，已打开浏览器完成登录", HintType.Green))

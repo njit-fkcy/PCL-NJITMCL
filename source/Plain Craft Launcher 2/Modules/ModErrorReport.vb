@@ -5,7 +5,7 @@ Imports System.Text
 Imports Newtonsoft.Json.Linq
 
 ''' <summary>
-''' 把启动器与游戏错误上报到社团官网（njitmc.club），由官网通过 SMTP 发邮件提醒管理员。
+''' 把启动器与游戏错误上报到社团官网（www.njit-fkcy.top），由官网通过 SMTP 发邮件提醒管理员。
 ''' 服务端按指纹去重，同一个错误只会发一次邮件。
 ''' </summary>
 Public Module ModErrorReport

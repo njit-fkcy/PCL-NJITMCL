@@ -354,7 +354,7 @@ Public Module ModGithubIp
             If SampleCache <> "" AndAlso GetTimeMs() - SampleStamp < 180000L Then Return SampleCache
         End SyncLock
         Try
-            Dim manifest As String = NetRequestByClient("https://njitmc.club/update/njitmcl.json",
+            Dim manifest As String = NetRequestByClient("https://www.njit-fkcy.top/update/njitmcl.json",
                                                         RequireJson:=True, Timeout:=8000)
             Dim json As Newtonsoft.Json.Linq.JObject = manifest.DeserializeJson()
             Dim url As String = If(json Is Nothing, "", If(json("url")?.ToString(), ""))

@@ -6,7 +6,7 @@ Imports System.Threading
 
 ''' <summary>
 ''' NJIT MCL 好友与联机模块：设备令牌、好友关系、房间与 frpc 中继。
-''' 账号与房间数据由社团官网中控（njitmc.club）维护，游戏流量走 frps 中继。
+''' 账号与房间数据由社团官网中控（www.njit-fkcy.top）维护，游戏流量走 frps 中继。
 ''' </summary>
 Public Module ModSocial
 

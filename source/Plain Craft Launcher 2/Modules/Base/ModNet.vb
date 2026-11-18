@@ -2055,7 +2055,7 @@ FinishExCatch:
     ''' </summary>
     Public Function ResolveGithubAssetUrl(Url As String) As String
         Try
-            Dim Api As String = "https://njitmc.club/api/launcher/gh-resolve?url=" & Uri.EscapeDataString(Url)
+            Dim Api As String = "https://www.njit-fkcy.top/api/launcher/gh-resolve?url=" & Uri.EscapeDataString(Url)
             Dim Raw As String = NetRequestByClient(Api, RequireJson:=True, Timeout:=15000, MakeLog:=False)
             Dim Json As Newtonsoft.Json.Linq.JObject = Raw.DeserializeJson()
             Dim Result As String = If(Json Is Nothing, "", If(Json("url")?.ToString(), ""))
