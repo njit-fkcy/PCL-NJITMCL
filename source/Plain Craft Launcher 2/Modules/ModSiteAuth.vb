@@ -94,6 +94,10 @@ Public Module ModSiteAuth
             HandleDownloadProtocol(Cleaned)
             Return
         End If
+        If ModPublishSync.IsPublishProtocol(Cleaned) Then
+            ModPublishSync.HandlePublishProtocol(Cleaned)
+            Return
+        End If
         If Not Cleaned.StartsWith("njitmcl://login", StringComparison.OrdinalIgnoreCase) Then Return
         RunInNewThread(
         Sub()
