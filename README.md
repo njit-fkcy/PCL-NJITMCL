@@ -21,8 +21,8 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 | 项 | 值 |
 |---|---|
 | 组织 | [njit-fkcy](https://github.com/njit-fkcy) |
-| 最新版本 | **v2.3.0** |
-| Release 数量 | 46（v1.0.3 ～ v2.3.0） |
+| 最新版本 | **v2.3.1** |
+| Release 数量 | 47（v1.0.3 ～ v2.3.1） |
 | 每个 Release 资产 | **2.1.x 起：2 个**（单 exe + 完整 zip）；2.0.x：8 个；1.x：10 个 |
 | 源码 | 本仓库 [`source/`](source/)（每版一个 tag `v<版本>-source`；内网镜像 `_launcher/_source/v<版本>/`） |
 | 更新清单 | https://www.njit-fkcy.top/update/njitmcl.json |
@@ -36,7 +36,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 ## 源码
 
 启动器源码在本仓库 [`source/`](source/) 目录，与发行版同仓，随版本打 tag `v<版本>-source`
-（当前 `v2.3.0-source`）。
+（当前 `v2.3.1-source`）。
 
 - 技术栈：VB.NET + WPF，.NET Framework 4.8.1，旧式 `.vbproj`
 - 编译：必须用 VS2022 BuildTools 的 MSBuild（先设 `MSBuildSDKsPath`、`MSBuildEnableWorkloadResolver=false`），详见 `source/README.md`
@@ -112,6 +112,7 @@ NJIT MCL 启动器（[Plain Craft Launcher 2](https://github.com/Hex-Dragon/PCL2
 
 | 版本 | Tag | 主程序 | 资产 | 发布 |
 |---|---|---|---|---|
+| 2.3.1 | `v2.3.1` | 7.6 MB | 2 | 2026-11-19 |
 | 2.3.0 | `v2.3.0` | 7.6 MB | 2 | 2026-11-18 |
 | 2.2.0 | `v2.2.0` | 7.6 MB | 2 | 2026-11-16 |
 | 2.1.4 | `v2.1.4` | 7.5 MB | 2 | 2026-11-14 |

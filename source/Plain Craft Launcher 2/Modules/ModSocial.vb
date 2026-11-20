@@ -387,6 +387,16 @@ Public Module ModSocial
     End Function
 
     ''' <summary>
+    ''' 举报一条好友私信；由社团管理员在网站后台审核处理。
+    ''' </summary>
+    Public Sub ReportMessage(MessageId As Long, Reason As String)
+        EnsureLogin()
+        Api("POST", "/messages/report", New JObject(
+            New JProperty("messageId", MessageId),
+            New JProperty("reason", Reason)))
+    End Sub
+
+    ''' <summary>
     ''' 系统消息（管理员在网站管理后台发布）。
     ''' </summary>
     Public Function ClubSystemMessages() As JObject

@@ -340,8 +340,50 @@ Public Class PageLinkMessage
             .Margin = New Thickness(0, 3, 0, 0),
             .HorizontalAlignment = If(Mine, HorizontalAlignment.Right, HorizontalAlignment.Left)})
         Bubble.Child = Stack
+        AttachBubbleMenu(Bubble, Item, Mine)
         Return Bubble
     End Function
+
+    ''' <summary>
+    ''' 气泡右键菜单：回复（引用该消息）、举报（仅对方消息）。
+    ''' </summary>
+    Private Sub AttachBubbleMenu(Bubble As FrameworkElement, Item As JObject, Mine As Boolean)
+        Dim Menu As New ContextMenu
+        Dim ReplyItem As New MenuItem With {.Header = "回复"}
+        AddHandler ReplyItem.Click,
+            Sub()
+                Dim Text As String = If(Item("content")?.ToString(), "").Trim()
+                If Text = "" Then Return
+                TxtMessage.Text = "「" & Text & "」" & vbCrLf & "回复："
+                TxtMessage.CaretIndex = TxtMessage.Text.Length
+                TxtMessage.Focus()
+            End Sub
+        Menu.Items.Add(ReplyItem)
+        Dim Id As Long
+        If Not Mine AndAlso Item("id") IsNot Nothing AndAlso Long.TryParse(Item("id").ToString(), Id) AndAlso Id > 0 Then
+            Dim ReportItem As New MenuItem With {.Header = "举报"}
+            AddHandler ReportItem.Click, Sub() ReportChatMessage(Id)
+            Menu.Items.Add(ReportItem)
+        End If
+        Bubble.ContextMenu = Menu
+    End Sub
+
+    Private Sub ReportChatMessage(MessageId As Long)
+        Dim Choice As Integer = MyMsgBox(
+            "请选择举报理由，举报内容会连同该条消息提交给社团管理员审核。",
+            "举报私信", "骚扰辱骂", "广告刷屏", "违法信息")
+        If Choice < 1 OrElse Choice > 3 Then Return
+        Dim Reason As String = If(Choice = 1, "骚扰辱骂", If(Choice = 2, "广告刷屏", "违法信息"))
+        RunInNewThread(
+        Sub()
+            Try
+                ModSocial.ReportMessage(MessageId, Reason)
+                RunInUi(Sub() Hint("举报已提交，管理员会尽快处理", HintType.Green))
+            Catch ex As Exception
+                RunInUi(Sub() Hint(ModSocial.FriendlyError(ex), HintType.Red))
+            End Try
+        End Sub, "SocialReport")
+    End Sub
 
     Private Sub BtnSend_Click() Handles BtnSend.Click
         SendCurrentMessage()
