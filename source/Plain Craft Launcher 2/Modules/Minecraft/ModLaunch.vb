@@ -1306,9 +1306,15 @@ NextInstance:
         '联机进服校验代理：局域网世界的集成服务端跑在当前游戏进程里，随启动注入最稳。
         '必须赶在 authlib 加载前装好；运行时 attach 对精简 JRE 不可用。
         Dim OnlineAgent As String = IO.Path.Combine(IO.Path.GetDirectoryName(PathExe), "PCL", "njit-online-agent.jar")
-        If ModSocial.SocialModeEnabled AndAlso IO.File.Exists(OnlineAgent) Then
-            Args.Add("-javaagent:""" & OnlineAgent & """")
-            McLaunchLog("已注入联机进服校验代理")
+        If IO.File.Exists(OnlineAgent) Then
+            If ModSocial.SocialModeEnabled Then
+                Args.Add("-javaagent:""" & OnlineAgent & """")
+                McLaunchLog("已注入联机进服校验代理")
+            End If
+        ElseIf ModSocial.SocialModeEnabled Then
+            '缺 jar 时必须留痕：以前这里是短路，用户只会觉得「皮肤不对」「拉杆没反应」，
+            '永远想不到是组件没装 —— 更新载荷不带 jar 的那段历史，留下的全是这种安装。
+            McLaunchLog("缺少 PCL\njit-online-agent.jar，本次未注入进服校验代理（进服校验与皮肤均不生效）", LogLevel.Warn)
         End If
 
         If UseJLW AndAlso CustomArg.Contains("-javaagent") Then

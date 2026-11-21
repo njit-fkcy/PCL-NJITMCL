@@ -354,7 +354,16 @@ Public Module ModUpdate
                 New KeyValuePair(Of String, String)("PCLCS.dll", "PCLCS.dll"),
                 New KeyValuePair(Of String, String)("MeloongCore.dll", "MeloongCore.dll"),
                 New KeyValuePair(Of String, String)("MeloongCore.Wpf.dll", "MeloongCore.Wpf.dll"),
-                New KeyValuePair(Of String, String)("Microsoft.Win32.Registry.dll", "Microsoft.Win32.Registry.dll")}
+                New KeyValuePair(Of String, String)("Microsoft.Win32.Registry.dll", "Microsoft.Win32.Registry.dll"),
+                '组件也要跟着更新 —— 之前只换这 7 个程序文件，PCL\ 下的 jar 永远停在安装时的版本，
+                '缺了就一直是缺的（表现为「皮肤不对」「拉杆没反应」，而且没有任何提示）。
+                New KeyValuePair(Of String, String)("PCL/njit-online-agent.jar", "PCL\njit-online-agent.jar"),
+                New KeyValuePair(Of String, String)("PCL/njit-online-attach.jar", "PCL\njit-online-attach.jar"),
+                New KeyValuePair(Of String, String)("PCL/authlib-injector.jar", "PCL\authlib-injector.jar")}
+            '这些是「可以跳过」的：游戏正在跑的时候 jar 被 JVM 占着，覆盖必失败，
+            '不该因此把整套更新回滚掉（exe 换了一半再退回去更糟）。
+            Dim OptionalFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {
+                "PCL\njit-online-agent.jar", "PCL\njit-online-attach.jar", "PCL\authlib-injector.jar"}
             Dim Plan As New JArray()
             For Each Pair As KeyValuePair(Of String, String) In ProgramFiles
                 Dim SourcePath As String = IO.Path.Combine(ExtractFolder, Pair.Key)
@@ -371,6 +380,7 @@ Public Module ModUpdate
                 Dim Entry As New JObject()
                 Entry.Add("path", Pair.Value)
                 Entry.Add("src", SourcePath)
+                If OptionalFiles.Contains(Pair.Value) Then Entry.Add("optional", True)
                 Plan.Add(Entry)
             Next
             If Plan.Count = 0 Then Throw New Exception("完整包中没有可用的启动器文件")
@@ -536,6 +546,14 @@ Public Module ModUpdate
                     Catch restoreEx As Exception
                         Logger.Warn(restoreEx, $"还原 {RelativePath} 失败")
                     End Try
+                    '可选组件（PCL\ 下的 jar）被占着就跳过，不让整套更新回滚 ——
+                    '游戏还开着时 jar 一定是锁的，那时候更需要的是把 exe 换上去。
+                    Dim Optional As Boolean = Item("optional") IsNot Nothing AndAlso
+                        Equals(Item("optional").ToObject(Of Boolean)(), True)
+                    If Optional Then
+                        Logger.Warn($"组件被占用，本次跳过（下次启动会重试）：{RelativePath} —— {ex.Message}")
+                        Continue For
+                    End If
                     Throw
                 End Try
             Next
