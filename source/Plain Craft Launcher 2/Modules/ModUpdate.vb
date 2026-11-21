@@ -347,6 +347,8 @@ Public Module ModUpdate
             '只替换程序文件；目标名跟随当前安装的文件名，兼容重命名后的安装目录
             Dim ExeName As String = ProgramFileName
             Dim ExeBase As String = ProgramBaseName
+            '组件也要跟着更新 —— 之前只换这 7 个程序文件，PCL\ 下的 jar 永远停在安装时的版本，
+            '缺了就一直是缺的（表现为「皮肤不对」「拉杆没反应」，而且没有任何提示）。
             Dim ProgramFiles As New List(Of KeyValuePair(Of String, String)) From {
                 New KeyValuePair(Of String, String)("PCL-NJITMCL.exe", ExeName),
                 New KeyValuePair(Of String, String)("PCL-NJITMCL.exe.config", ExeName & ".config"),
@@ -355,8 +357,6 @@ Public Module ModUpdate
                 New KeyValuePair(Of String, String)("MeloongCore.dll", "MeloongCore.dll"),
                 New KeyValuePair(Of String, String)("MeloongCore.Wpf.dll", "MeloongCore.Wpf.dll"),
                 New KeyValuePair(Of String, String)("Microsoft.Win32.Registry.dll", "Microsoft.Win32.Registry.dll"),
-                '组件也要跟着更新 —— 之前只换这 7 个程序文件，PCL\ 下的 jar 永远停在安装时的版本，
-                '缺了就一直是缺的（表现为「皮肤不对」「拉杆没反应」，而且没有任何提示）。
                 New KeyValuePair(Of String, String)("PCL/njit-online-agent.jar", "PCL\njit-online-agent.jar"),
                 New KeyValuePair(Of String, String)("PCL/njit-online-attach.jar", "PCL\njit-online-attach.jar"),
                 New KeyValuePair(Of String, String)("PCL/authlib-injector.jar", "PCL\authlib-injector.jar")}
@@ -548,9 +548,9 @@ Public Module ModUpdate
                     End Try
                     '可选组件（PCL\ 下的 jar）被占着就跳过，不让整套更新回滚 ——
                     '游戏还开着时 jar 一定是锁的，那时候更需要的是把 exe 换上去。
-                    Dim Optional As Boolean = Item("optional") IsNot Nothing AndAlso
+                    Dim CanSkip As Boolean = Item("optional") IsNot Nothing AndAlso
                         Equals(Item("optional").ToObject(Of Boolean)(), True)
-                    If Optional Then
+                    If CanSkip Then
                         Logger.Warn($"组件被占用，本次跳过（下次启动会重试）：{RelativePath} —— {ex.Message}")
                         Continue For
                     End If
